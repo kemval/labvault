@@ -10,6 +10,17 @@
 <h3 align="center">Pharmaceutical Laboratory Management & Quality Control System</h3>
 <p align="center"><em>A full-stack LIMS prototype powered by real FDA drug recall data</em></p>
 
+<p align="center">
+  <a href="https://labvault.streamlit.app/">
+    <img src="https://img.shields.io/badge/🔴_LIVE_DEMO-labvault.streamlit.app-FF4B4B?style=for-the-badge&logoColor=white" alt="Live Demo" />
+  </a>
+</p>
+
+<p align="center">
+  <strong>👉 <a href="https://labvault.streamlit.app/">Try the live demo here</a> 👈</strong><br/>
+  <sub>Login with <code>admin</code> / <code>admin123</code> or <code>kembly</code> / <code>lab2024</code></sub>
+</p>
+
 ---
 
 ## 📋 Table of Contents
