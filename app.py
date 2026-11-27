@@ -184,10 +184,10 @@ if "user" not in st.session_state:
     st.session_state.user = None
 if "page" not in st.session_state:
     st.session_state.page = "Dashboard"
-if "fda_seeded" not in st.session_state:
-    # Track whether we already imported FDA data this session,
-    # so we don't trigger the spinner on every rerun.
-    st.session_state.fda_seeded = False
+if "auto_import_attempted" not in st.session_state:
+    # The first-login FDA auto-import runs at most once per session —
+    # success or failure — so a down API can't block every rerun.
+    st.session_state.auto_import_attempted = False
 
 
 # ─────────────────────────────────────────────
@@ -288,8 +288,8 @@ def show_sidebar():
                 with st.spinner("Fetching real FDA recall records..."):
                     result = seed_from_fda(limit=100)
                 if result["success"]:
-                    st.success(f"✅ Imported {result['count']} samples")
-                    st.session_state.fda_seeded = True
+                    st.success(f"✅ Imported {result['count']} new samples "
+                               f"({result['already_present']} already present)")
                     st.rerun()
                 else:
                     st.error(f"❌ {result['error']}")
@@ -352,14 +352,20 @@ else:
 
     # On the very first login, if the DB is completely empty, kick off
     # the FDA import automatically so the user sees real data right away
-    # instead of a blank dashboard. The fda_seeded flag prevents this
-    # from running again on every page navigation within the session.
-    if not sample_exists() and not st.session_state.fda_seeded:
+    # instead of a blank dashboard. It is attempted once per session; with
+    # only_if_empty=True, a session that loses the race to another one's
+    # import becomes a no-op instead of importing a second batch.
+    if not st.session_state.auto_import_attempted and not sample_exists():
+        st.session_state.auto_import_attempted = True
         with st.spinner("🔬 First launch — importing real FDA pharmaceutical data..."):
-            result = seed_from_fda(limit=100)
+            result = seed_from_fda(limit=100, only_if_empty=True)
         if result["success"]:
-            st.session_state.fda_seeded = True
             st.success(f"✅ {result['count']} real FDA recall records imported. Welcome to LabVault!")
             st.rerun()
+        else:
+            hint = ("Use **🔄 Import FDA Data** in the sidebar to try again."
+                    if st.session_state.user["role"] == "admin"
+                    else "Ask an administrator to import the data.")
+            st.error(f"Could not import FDA data: {result['error']}. {hint}")
 
     route()

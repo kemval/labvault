@@ -175,6 +175,13 @@ def _clear_result_cache():
     get_results_for_sample.clear()
 
 
+def clear_data_caches():
+    """For bulk writes that bypass the helpers below (e.g. the FDA import)."""
+    _clear_sample_cache()
+    _clear_result_cache()
+    get_audit_trail.clear()
+
+
 # ─────────────────────────────────────────────
 # AUTH HELPERS
 # ─────────────────────────────────────────────
