@@ -5,6 +5,7 @@ pages/sample_tracking.py — View, filter, and update sample status
 import streamlit as st
 import pandas as pd
 from db import get_all_samples, update_sample_status, update_sample_assignment, get_lab_techs, log_action
+from views.ui import esc
 
 
 STATUS_OPTIONS = ["Pending", "In Progress", "Completed", "Rejected"]
@@ -65,16 +66,16 @@ def show():
                 st.markdown(f"""
                     <div style="background:#f8f9ff;border-radius:8px;padding:14px;
                                 border-left:4px solid {border_color}">
-                        <b>Product:</b> {s['product_name']}<br>
-                        <b>Manufacturer:</b> {s['manufacturer']}<br>
-                        <b>Lot Number:</b> {s.get('lot_number', 'N/A')}<br>
-                        <b>Sample Type:</b> {s['sample_type']}<br>
-                        <b>Classification:</b> {s['recall_class']}<br>
-                        <b>Priority:</b> {s['priority']}<br>
-                        <b>Collection Date:</b> {s['collection_date']}<br>
-                        <b>Assigned To:</b> {s['assigned_to']}<br>
-                        <b>Source:</b> {s.get('source', 'FDA')}<br>
-                        <b>Reason:</b> {s.get('reason_for_recall','N/A')[:200]}<br>
+                        <b>Product:</b> {esc(s['product_name'])}<br>
+                        <b>Manufacturer:</b> {esc(s['manufacturer'])}<br>
+                        <b>Lot Number:</b> {esc(s.get('lot_number') or 'N/A')}<br>
+                        <b>Sample Type:</b> {esc(s['sample_type'])}<br>
+                        <b>Classification:</b> {esc(s['recall_class'])}<br>
+                        <b>Priority:</b> {esc(s['priority'])}<br>
+                        <b>Collection Date:</b> {esc(s['collection_date'])}<br>
+                        <b>Assigned To:</b> {esc(s['assigned_to'])}<br>
+                        <b>Source:</b> {esc(s.get('source') or 'FDA')}<br>
+                        <b>Reason:</b> {esc((s.get('reason_for_recall') or 'N/A')[:200])}<br>
                     </div>
                 """, unsafe_allow_html=True)
 

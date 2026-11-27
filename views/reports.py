@@ -51,6 +51,16 @@ def build_excel(samples, results):
             ]
             df_oos.to_excel(writer, sheet_name="OOS Results", index=False)
 
+        # openpyxl stores any string starting with "=" as a live formula.
+        # Exported values come from user input and the openFDA API, so force
+        # every such cell back to plain text — content is kept exactly, but
+        # Excel will never evaluate it (formula injection).
+        for ws in writer.book.worksheets:
+            for row in ws.iter_rows():
+                for cell in row:
+                    if cell.data_type == "f":
+                        cell.data_type = "s"
+
     return output.getvalue()
 
 

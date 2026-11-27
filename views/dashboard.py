@@ -9,6 +9,7 @@ from db import (
     get_recent_samples, get_oos_results, get_audit_trail,
     count_samples_by_status, count_samples_by_priority, count_oos_results
 )
+from views.ui import esc
 
 
 def show():
@@ -20,7 +21,7 @@ def show():
         <div class="lv-header">
             <div>
                 <h1>📊 Dashboard</h1>
-                <span>Welcome back, {user['username']} — {pd.Timestamp.now().strftime('%A, %B %d %Y')}</span>
+                <span>Welcome back, {esc(user['username'])} — {pd.Timestamp.now().strftime('%A, %B %d %Y')}</span>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -125,15 +126,15 @@ def show():
                                 margin-bottom:8px;border-left:4px solid #1a4a8a;
                                 box-shadow:0 1px 4px rgba(0,0,0,0.06)">
                         <div style="font-weight:600;font-size:13px;color:#0f2942">
-                            {s['sample_id']}
-                            <span class="badge {priority_class}" style="margin-left:6px">{s.get('priority','—')}</span>
-                            <span class="badge {badge_class}" style="margin-left:4px">{s.get('status','—')}</span>
+                            {esc(s['sample_id'])}
+                            <span class="badge {priority_class}" style="margin-left:6px">{esc(s.get('priority','—'))}</span>
+                            <span class="badge {badge_class}" style="margin-left:4px">{esc(s.get('status','—'))}</span>
                         </div>
                         <div style="font-size:12px;color:#555;margin-top:3px">
-                            {name[:60]}{'...' if len(name) > 60 else ''}
+                            {esc(name[:60])}{'...' if len(name) > 60 else ''}
                         </div>
                         <div style="font-size:11px;color:#888;margin-top:2px">
-                            {s.get('manufacturer','—')} · {s.get('assigned_to','—')}
+                            {esc(s.get('manufacturer','—'))} · {esc(s.get('assigned_to','—'))}
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
@@ -160,12 +161,12 @@ def show():
                     <div style="background:white;border-radius:8px;padding:10px 14px;
                                 margin-bottom:8px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">
                         <div style="font-size:13px;color:#0f2942">
-                            {icon} <strong>{e.get('user','—')}</strong>
-                            — {e.get('action','').replace('_',' ').title()}
+                            {icon} <strong>{esc(e.get('user','—'))}</strong>
+                            — {esc(e.get('action','').replace('_',' ').title())}
                         </div>
-                        <div style="font-size:11px;color:#666;margin-top:2px">{detail}</div>
+                        <div style="font-size:11px;color:#666;margin-top:2px">{esc(detail)}</div>
                         <div style="font-size:10px;color:#aaa;margin-top:2px">
-                            {e.get('timestamp','')} · {e.get('module','')}
+                            {esc(e.get('timestamp',''))} · {esc(e.get('module',''))}
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
