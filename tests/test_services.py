@@ -37,7 +37,7 @@ def failing_audit(monkeypatch):
 
 # ── register_sample ────────────────────────────────────────────────────────
 
-def test_register_sample_writes_sample_and_audit(fresh_db):
+def test_register_sample_writes_sample_and_audit(lab_db):
     sample_id = services.register_sample(BASE, "kembly")
     [s] = rows("SELECT * FROM samples")
     assert s["sample_id"] == sample_id and sample_id.startswith("LV-")
@@ -46,13 +46,13 @@ def test_register_sample_writes_sample_and_audit(fresh_db):
     assert (a["user"], a["target_id"]) == ("kembly", sample_id)
 
 
-def test_register_sample_rolls_back_when_audit_fails(fresh_db, failing_audit):
+def test_register_sample_rolls_back_when_audit_fails(lab_db, failing_audit):
     with pytest.raises(RuntimeError):
         services.register_sample(BASE, "kembly")
     assert rows("SELECT * FROM samples") == []
 
 
-def test_register_sample_retries_id_collision(fresh_db, monkeypatch):
+def test_register_sample_retries_id_collision(lab_db, monkeypatch):
     insert_sample({**BASE, "sample_id": "LV-TAKEN", "status": "Pending", "source": "Manual"})
     ids = iter(["LV-TAKEN", "LV-FRESH"])
     monkeypatch.setattr(services, "_new_sample_id", lambda: next(ids))
@@ -64,7 +64,7 @@ def test_register_sample_retries_id_collision(fresh_db, monkeypatch):
 # ── update_sample ──────────────────────────────────────────────────────────
 
 @pytest.fixture
-def sample_id(fresh_db):
+def sample_id(lab_db):
     return services.register_sample(BASE, "admin")
 
 
@@ -115,7 +115,7 @@ def test_noop_update_writes_nothing(sample_id):
     assert len(audit()) == before
 
 
-def test_update_of_missing_sample(fresh_db):
+def test_update_of_missing_sample(lab_db):
     with pytest.raises(services.NotFoundError):
         services.update_sample("NOPE", 1, "admin", status="Completed")
 
@@ -139,12 +139,12 @@ def test_record_result_rolls_back_when_audit_fails(sample_id, failing_audit):
     assert rows("SELECT * FROM test_results") == []
 
 
-def test_record_result_for_missing_sample(fresh_db):
+def test_record_result_for_missing_sample(lab_db):
     with pytest.raises(services.NotFoundError):
         services.record_result({**RESULT, "sample_id": "NOPE"}, "kembly", "x")
 
 
-def test_create_protocol_writes_protocol_and_audit(fresh_db):
+def test_create_protocol_writes_protocol_and_audit(lab_db):
     services.create_protocol({"name": "KF Water", "sample_type": "Powder",
                               "description": "", "steps": "1. Titrate"}, "admin")
     [p] = rows("SELECT * FROM protocols")
@@ -152,7 +152,7 @@ def test_create_protocol_writes_protocol_and_audit(fresh_db):
     assert audit("PROTOCOL_CREATED")[0]["target_id"] == "KF Water"
 
 
-def test_create_protocol_rolls_back_when_audit_fails(fresh_db, failing_audit):
+def test_create_protocol_rolls_back_when_audit_fails(lab_db, failing_audit):
     with pytest.raises(RuntimeError):
         services.create_protocol({"name": "X", "sample_type": "Tablet",
                                   "description": "", "steps": ""}, "admin")

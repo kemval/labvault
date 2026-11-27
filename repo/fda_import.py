@@ -2,6 +2,7 @@
 repo/fda_import.py — write a parsed openFDA batch (ADR 0002).
 """
 
+import sqlite3
 from datetime import datetime
 
 from repo.core import get_conn
@@ -39,9 +40,11 @@ def write_batch(parsed: list, skipped: int, only_if_empty: bool = False) -> dict
         # re-import would attach a second set of results to existing samples.
         inserted_ids = set()
         new_results = []
+        rejected = 0
         for s, results in parsed:
-            cur = conn.execute("""
-                INSERT OR IGNORE INTO samples
+            try:
+                cur = conn.execute("""
+                INSERT INTO samples
                     (sample_id, product_name, lot_number, manufacturer, sample_type,
                      recall_class, priority, reason_for_recall, collection_date,
                      status, assigned_to, protocol_id, notes, source, is_simulated)
@@ -49,7 +52,13 @@ def write_batch(parsed: list, skipped: int, only_if_empty: bool = False) -> dict
                     (:sample_id, :product_name, :lot_number, :manufacturer, :sample_type,
                      :recall_class, :priority, :reason_for_recall, :collection_date,
                      :status, :assigned_to, :protocol_id, :notes, :source, 1)
+                ON CONFLICT (sample_id) DO NOTHING
             """, s)
+            except sqlite3.IntegrityError:
+                # A value the schema rejects (e.g. openFDA's "Not Yet
+                # Classified"): SQLite undoes just this statement — skip it.
+                rejected += 1
+                continue
             if cur.rowcount == 1:
                 inserted_ids.add(s["sample_id"])
                 new_results.extend(results)
@@ -64,7 +73,8 @@ def write_batch(parsed: list, skipped: int, only_if_empty: bool = False) -> dict
                      :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes, 1)
             """, new_results)
 
-        already_present = len(parsed) - len(inserted_ids)
+        already_present = len(parsed) - len(inserted_ids) - rejected
+        skipped += rejected
 
         # One summary audit entry instead of one per record — 100 individual
         # entries would flood the audit trail and make it unreadable.

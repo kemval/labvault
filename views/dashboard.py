@@ -141,7 +141,7 @@ def show():
                             {esc(name[:60])}{'...' if len(name) > 60 else ''}
                         </div>
                         <div style="font-size:11px;color:#888;margin-top:2px">
-                            {esc(s.get('manufacturer','—'))} · {esc(s.get('assigned_to','—'))}
+                            {esc(s.get('manufacturer','—'))} · {esc(s.get('assigned_to') or 'Unassigned')}
                         </div>
                     </div>
                 """, unsafe_allow_html=True)

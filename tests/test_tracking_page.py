@@ -85,3 +85,18 @@ def test_intake_form_registers_sample_with_audit(fresh_db, settings):
     assert new["product_name"] == "Amoxicillin 250mg"
     assert audit("SAMPLE_CREATED")[0]["target_id"] == new["sample_id"]
     assert any(new["sample_id"] in s.value for s in at.success)
+
+
+def test_status_save_keeps_unassigned_sample_unassigned(fresh_db, settings):
+    settings(demo="true")
+    fresh_db.seed_users(demo=True)
+    sample_id = services.register_sample({**BASE, "assigned_to": None}, "admin")
+    at = login(run_app(), "kembly", "lab2024")
+    at.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
+    assert at.selectbox(key=f"assign_{sample_id}").value == "Unassigned"
+
+    save(at, sample_id, "In Progress")
+
+    [s] = rows("SELECT * FROM samples")
+    assert (s["status"], s["assigned_to"]) == ("In Progress", None)
+    assert audit("SAMPLE_ASSIGNED") == []

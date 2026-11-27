@@ -18,3 +18,6 @@ SIMULATED_LABEL = "SIMULATED"
 def simulated_text(flag) -> str:
     """'Yes'/'No' for table columns; missing flags count as real data."""
     return "Yes" if flag else "No"
+
+# Shown for a sample with no assignee (assigned_to is NULL).
+UNASSIGNED = "Unassigned"

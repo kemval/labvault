@@ -103,7 +103,8 @@ def _update_sample(sample_id, expected_version, user, status, assigned_to) -> bo
             return False
 
         conn.execute("""
-            UPDATE samples SET status = ?, assigned_to = ?, version = version + 1
+            UPDATE samples SET status = ?, assigned_to = ?, version = version + 1,
+                               updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
             WHERE sample_id = ? AND version = ?
         """, (new_status, new_assignee, sample_id, expected_version))
         for action, detail in changes:

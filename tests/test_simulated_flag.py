@@ -41,13 +41,14 @@ def rows(db, sql):
 # ── migration 1 on a pre-existing database ─────────────────────────────────
 
 def test_migration_flags_existing_demo_data_only(tmp_path, monkeypatch):
-    from repo import core, schema
+    from repo import core, schema, users
     from repo.results import insert_test_result
     from repo.samples import insert_sample
     monkeypatch.setattr(core, "DB_PATH", str(tmp_path / "old.db"))
     with monkeypatch.context() as m:
         m.setattr(schema, "MIGRATIONS", [])
         schema.init_db()                           # baseline schema, version 0
+        users.seed_users(demo=True)                # samples/results name kembly
         insert_sample(sample("D-1", "FDA"))
         insert_test_result(result("D-1", "Within specification."))            # simulator
         insert_test_result(result("D-1", "Retest by analyst B, new column"))  # hand-logged
@@ -85,12 +86,12 @@ def test_new_imports_are_flagged_and_attributed_to_simulator(fresh_db, monkeypat
     assert all("SIMULATED" in r["notes"] for r in rows(fresh_db, "SELECT * FROM samples"))
 
 
-def test_manually_registered_data_is_real(fresh_db):
-    fresh_db.insert_sample(sample("M-1", "Manual"))
-    fresh_db.insert_test_result(result("M-1", "ok"))
-    assert rows(fresh_db, "SELECT is_simulated FROM samples") == [{"is_simulated": 0}]
-    assert rows(fresh_db, "SELECT is_simulated FROM test_results") == [{"is_simulated": 0}]
-    assert fresh_db.count_simulated() == {"samples": 0, "results": 0}
+def test_manually_registered_data_is_real(lab_db):
+    lab_db.insert_sample(sample("M-1", "Manual"))
+    lab_db.insert_test_result(result("M-1", "ok"))
+    assert rows(lab_db, "SELECT is_simulated FROM samples") == [{"is_simulated": 0}]
+    assert rows(lab_db, "SELECT is_simulated FROM test_results") == [{"is_simulated": 0}]
+    assert lab_db.count_simulated() == {"samples": 0, "results": 0}
 
 
 # ── UI ──────────────────────────────────────────────────────────────────────
@@ -134,15 +135,15 @@ def test_tracking_labels_simulated_samples(mixed_app):
 
 # ── reports ─────────────────────────────────────────────────────────────────
 
-def test_excel_marks_simulated_rows(fresh_db, monkeypatch):
+def test_excel_marks_simulated_rows(lab_db, monkeypatch):
     from views.reports import build_excel
     serve(monkeypatch, [record(1)])
     services.import_fda(limit=1)
-    fresh_db.insert_sample(sample("M-1", "Manual"))
-    fresh_db.insert_test_result(result("M-1", "ok"))
+    lab_db.insert_sample(sample("M-1", "Manual"))
+    lab_db.insert_test_result(result("M-1", "ok"))
 
     wb = openpyxl.load_workbook(io.BytesIO(build_excel(
-        fresh_db.get_all_samples(), fresh_db.get_all_results())))
+        lab_db.get_all_samples(), lab_db.get_all_results())))
 
     for name in ("Samples", "Test Results"):
         ws = wb[name]
@@ -154,14 +155,14 @@ def test_excel_marks_simulated_rows(fresh_db, monkeypatch):
         assert by_id["D-0001-2024"] == {"Yes"} and by_id["M-1"] == {"No"}, name
 
 
-def test_pdf_states_simulated_counts(fresh_db, monkeypatch):
+def test_pdf_states_simulated_counts(lab_db, monkeypatch):
     from reportlab import rl_config
     from views.reports import build_pdf
     monkeypatch.setattr(rl_config, "pageCompression", 0)
     serve(monkeypatch, [record(1)])
     services.import_fda(limit=1)
 
-    pdf = build_pdf(fresh_db.get_all_samples(), fresh_db.get_all_results())
+    pdf = build_pdf(lab_db.get_all_samples(), lab_db.get_all_results())
 
     assert b"Contains simulated demo data" in pdf
     assert b"D-0001-2024 *" in pdf

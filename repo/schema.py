@@ -149,9 +149,222 @@ def _m002_sample_version(conn):
     conn.execute("ALTER TABLE samples ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
 
 
+class MigrationError(RuntimeError):
+    """Existing data can't be migrated safely; nothing was changed."""
+
+
+# Frozen copies of the allowed values as of migration 3. A released migration
+# must never change, so these are deliberately not imported from elsewhere.
+_M003_ROLES = ("admin", "lab_tech", "system")
+_M003_STATUSES = ("Pending", "In Progress", "Completed", "Rejected")
+_M003_PRIORITIES = ("Critical", "Major", "Minor")
+_M003_CLASSES = ("Class I", "Class II", "Class III")
+_M003_SAMPLE_TYPES = ("Tablet", "Capsule", "Injectable", "Liquid", "Topical", "Powder",
+                      "Non-sterile")
+_M003_SOURCES = ("FDA", "Manual")
+_M003_RESULT_STATUSES = ("Pass", "Fail (OOS)")
+# Non-login accounts that own automated actions. "!" can never equal a
+# SHA-256 hex digest, and authenticate() also refuses the system role.
+_M003_SYSTEM_ACCOUNTS = ("system", "simulator")
+_UNUSABLE_PASSWORD = "!"
+_UTC_NOW = "(strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"
+
+
+def _sql_list(values):
+    return "(" + ", ".join("'" + v.replace("'", "''") + "'" for v in values) + ")"
+
+
+def _m003_problems(conn):
+    """Every existing row that would break a migration-3 rule, described."""
+    users = "(SELECT username FROM users)"
+    checks = [
+        ("users.role", "role", "users", f"role NOT IN {_sql_list(_M003_ROLES)}"),
+        ("samples.status", "status", "samples",
+         f"status IS NULL OR status NOT IN {_sql_list(_M003_STATUSES)}"),
+        ("samples.priority", "priority", "samples",
+         f"priority NOT IN {_sql_list(_M003_PRIORITIES)}"),
+        ("samples.recall_class", "recall_class", "samples",
+         f"recall_class NOT IN {_sql_list(_M003_CLASSES)}"),
+        ("samples.sample_type", "sample_type", "samples",
+         f"sample_type NOT IN {_sql_list(_M003_SAMPLE_TYPES)}"),
+        ("samples.source", "source", "samples",
+         f"source IS NULL OR source NOT IN {_sql_list(_M003_SOURCES)}"),
+        ("samples.assigned_to (not a user)", "assigned_to", "samples",
+         f"assigned_to IS NOT NULL AND assigned_to NOT IN {users}"),
+        ("samples.protocol_id (no such protocol)", "protocol_id", "samples",
+         "protocol_id IS NOT NULL AND protocol_id NOT IN (SELECT id FROM protocols)"),
+        ("test_results.status", "status", "test_results",
+         f"status IS NULL OR status NOT IN {_sql_list(_M003_RESULT_STATUSES)}"),
+        ("test_results.tested_by (not a user)", "tested_by", "test_results",
+         f"tested_by IS NULL OR tested_by NOT IN {users}"),
+        ("test_results.sample_id (no such sample)", "sample_id", "test_results",
+         "sample_id NOT IN (SELECT sample_id FROM samples)"),
+        ("test_results spec_min > spec_max", "id", "test_results",
+         "spec_min IS NOT NULL AND spec_max IS NOT NULL AND spec_min > spec_max"),
+        ("protocols.sample_type", "sample_type", "protocols",
+         f"sample_type NOT IN {_sql_list(_M003_SAMPLE_TYPES)}"),
+        ("protocols.created_by (not a user)", "created_by", "protocols",
+         f"created_by IS NOT NULL AND created_by NOT IN {users}"),
+        ("audit_trail.user (not a user)", "user", "audit_trail", f"user NOT IN {users}"),
+    ]
+    problems = []
+    for label, column, table, where in checks:
+        rows = conn.execute(
+            f"SELECT {column} AS v, COUNT(*) AS n FROM {table} WHERE {where} GROUP BY 1"
+        ).fetchall()
+        if rows:
+            found = ", ".join(f"{r['v']!r} ×{r['n']}" for r in rows[:10])
+            problems.append(f"{label}: {found}")
+    return problems
+
+
+def _m003_constraints(conn):
+    """
+    Audit M4: CHECK constraints, user foreign keys, created/updated timestamps.
+    SQLite can't add constraints to existing tables, so each table is rebuilt.
+    Data is validated first; if anything would violate a rule the migration
+    stops with a description and changes nothing. Existing rows keep NULL
+    timestamps ("not recorded"); new rows default to UTC now. See ADR 0007.
+    """
+    # 1. Accounts that own automated actions (imports, migrations, simulator).
+    for name in _M003_SYSTEM_ACCOUNTS:
+        row = conn.execute("SELECT role FROM users WHERE username = ?", (name,)).fetchone()
+        if row is None:
+            conn.execute("INSERT INTO users (username, password, role) VALUES (?, ?, 'system')",
+                         (name, _UNUSABLE_PASSWORD))
+        elif row["role"] != "system":
+            raise MigrationError(
+                f"Migration 3 needs '{name}' as a non-login system account, but a "
+                f"{row['role']} account with that name exists. Rename it first.")
+
+    # 2. Refuse to touch anything if existing data breaks a new rule.
+    problems = _m003_problems(conn)
+    if problems:
+        raise MigrationError(
+            "Migration 3 stopped — nothing was changed. These existing values break "
+            "the new rules; fix them, then restart:\n  - " + "\n  - ".join(problems))
+
+    # 3. Move the old tables aside (SQLite rewrites their FKs to each other),
+    #    create the constrained tables under the real names, copy, drop old.
+    tables = ["users", "protocols", "samples", "test_results", "audit_trail"]
+    for name in ("idx_samples_status", "idx_samples_priority", "idx_samples_id",
+                 "idx_results_sample", "idx_results_status", "idx_audit_timestamp"):
+        conn.execute(f"DROP INDEX IF EXISTS {name}")
+    for t in tables:
+        conn.execute(f"ALTER TABLE {t} RENAME TO {t}_old")
+
+    conn.execute(f"""
+        CREATE TABLE users (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            username    TEXT UNIQUE NOT NULL,
+            password    TEXT NOT NULL,
+            role        TEXT NOT NULL CHECK (role IN {_sql_list(_M003_ROLES)})
+        )""")
+    conn.execute(f"""
+        CREATE TABLE protocols (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            sample_type TEXT NOT NULL CHECK (sample_type IN {_sql_list(_M003_SAMPLE_TYPES)}),
+            description TEXT,
+            steps       TEXT,
+            created_by  TEXT REFERENCES users(username),
+            created_at  TEXT DEFAULT {_UTC_NOW}
+        )""")
+    conn.execute(f"""
+        CREATE TABLE samples (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            sample_id         TEXT UNIQUE NOT NULL,
+            product_name      TEXT NOT NULL,
+            lot_number        TEXT,
+            manufacturer      TEXT,
+            sample_type       TEXT CHECK (sample_type IN {_sql_list(_M003_SAMPLE_TYPES)}),
+            recall_class      TEXT CHECK (recall_class IN {_sql_list(_M003_CLASSES)}),
+            priority          TEXT CHECK (priority IN {_sql_list(_M003_PRIORITIES)}),
+            reason_for_recall TEXT,
+            collection_date   TEXT,
+            status            TEXT NOT NULL DEFAULT 'Pending'
+                              CHECK (status IN {_sql_list(_M003_STATUSES)}),
+            assigned_to       TEXT REFERENCES users(username),
+            protocol_id       INTEGER REFERENCES protocols(id),
+            notes             TEXT,
+            source            TEXT NOT NULL DEFAULT 'Manual'
+                              CHECK (source IN {_sql_list(_M003_SOURCES)}),
+            is_simulated      INTEGER NOT NULL DEFAULT 0 CHECK (is_simulated IN (0, 1)),
+            version           INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+            created_at        TEXT DEFAULT {_UTC_NOW},
+            updated_at        TEXT DEFAULT {_UTC_NOW}
+        )""")
+    conn.execute(f"""
+        CREATE TABLE test_results (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            sample_id    TEXT NOT NULL REFERENCES samples(sample_id),
+            test_name    TEXT NOT NULL,
+            result_value REAL,
+            result_unit  TEXT,
+            spec_min     REAL,
+            spec_max     REAL,
+            status       TEXT NOT NULL CHECK (status IN {_sql_list(_M003_RESULT_STATUSES)}),
+            tested_by    TEXT NOT NULL REFERENCES users(username),
+            tested_at    TEXT,
+            notes        TEXT,
+            is_simulated INTEGER NOT NULL DEFAULT 0 CHECK (is_simulated IN (0, 1)),
+            created_at   TEXT DEFAULT {_UTC_NOW},
+            CHECK (spec_min IS NULL OR spec_max IS NULL OR spec_min <= spec_max)
+        )""")
+    conn.execute("""
+        CREATE TABLE audit_trail (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            user      TEXT NOT NULL REFERENCES users(username),
+            action    TEXT NOT NULL,
+            module    TEXT NOT NULL,
+            target_id TEXT,
+            detail    TEXT
+        )""")
+
+    copies = {
+        "users": "id, username, password, role",
+        "protocols": "id, name, sample_type, description, steps, created_by, created_at",
+        "audit_trail": "id, timestamp, user, action, module, target_id, detail",
+    }
+    for t, cols in copies.items():
+        conn.execute(f"INSERT INTO {t} ({cols}) SELECT {cols} FROM {t}_old")
+    conn.execute("""
+        INSERT INTO samples (id, sample_id, product_name, lot_number, manufacturer,
+            sample_type, recall_class, priority, reason_for_recall, collection_date,
+            status, assigned_to, protocol_id, notes, source, is_simulated, version,
+            created_at, updated_at)
+        SELECT id, sample_id, product_name, lot_number, manufacturer,
+            sample_type, recall_class, priority, reason_for_recall, collection_date,
+            status, assigned_to, protocol_id, notes, source, is_simulated, version,
+            NULL, NULL
+        FROM samples_old""")
+    conn.execute("""
+        INSERT INTO test_results (id, sample_id, test_name, result_value, result_unit,
+            spec_min, spec_max, status, tested_by, tested_at, notes, is_simulated, created_at)
+        SELECT id, sample_id, test_name, result_value, result_unit,
+            spec_min, spec_max, status, tested_by, tested_at, notes, is_simulated, NULL
+        FROM test_results_old""")
+
+    for t in ["test_results", "samples", "audit_trail", "protocols", "users"]:  # children first
+        conn.execute(f"DROP TABLE {t}_old")
+
+    # idx_samples_id is not recreated: UNIQUE(sample_id) already indexes it.
+    conn.execute("CREATE INDEX idx_samples_status   ON samples(status)")
+    conn.execute("CREATE INDEX idx_samples_priority ON samples(priority)")
+    conn.execute("CREATE INDEX idx_results_sample   ON test_results(sample_id)")
+    conn.execute("CREATE INDEX idx_results_status   ON test_results(status)")
+    conn.execute("CREATE INDEX idx_audit_timestamp  ON audit_trail(timestamp)")
+
+    violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if violations:
+        raise MigrationError(f"Migration 3: foreign key check failed: {violations[:10]}")
+
+
 MIGRATIONS = [
     _m001_simulated_flag,
     _m002_sample_version,
+    _m003_constraints,
 ]
 
 

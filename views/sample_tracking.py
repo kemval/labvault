@@ -5,7 +5,7 @@ pages/sample_tracking.py — View, filter, and update sample status
 import streamlit as st
 from db import get_all_samples, get_lab_techs
 import services
-from views.ui import esc, SIMULATED_LABEL
+from views.ui import esc, SIMULATED_LABEL, UNASSIGNED
 
 
 STATUS_OPTIONS = ["Pending", "In Progress", "Completed", "Rejected"]
@@ -100,7 +100,7 @@ def show():
                         <b>Classification:</b> {esc(s['recall_class'])}<br>
                         <b>Priority:</b> {esc(s['priority'])}<br>
                         <b>Collection Date:</b> {esc(s['collection_date'])}<br>
-                        <b>Assigned To:</b> {esc(s['assigned_to'])}<br>
+                        <b>Assigned To:</b> {esc(s['assigned_to'] or UNASSIGNED)}<br>
                         <b>Source:</b> {esc(s.get('source') or 'FDA')}<br>
                         <b>Reason:</b> {esc((s.get('reason_for_recall') or 'N/A')[:200])}<br>
                         {sim_line}
@@ -128,12 +128,16 @@ def show():
                 )
 
                 # Reassign
-                if techs:
-                    new_assignee = st.selectbox(
-                        "Assigned To", techs,
-                        index=techs.index(s["assigned_to"]) if s["assigned_to"] in techs else 0,
+                # An unassigned sample offers "Unassigned" so saving a status
+                # change doesn't silently assign it to the first tech.
+                options = techs if s["assigned_to"] else [UNASSIGNED] + techs
+                if options:
+                    choice = st.selectbox(
+                        "Assigned To", options,
+                        index=options.index(s["assigned_to"]) if s["assigned_to"] in options else 0,
                         key=f"assign_{s['sample_id']}"
                     )
+                    new_assignee = None if choice == UNASSIGNED else choice
                 else:
                     new_assignee = s["assigned_to"]
 

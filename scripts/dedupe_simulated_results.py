@@ -61,6 +61,13 @@ def main(argv=None):
                 print("Dry run — nothing deleted. Re-run with --apply --user <name> to delete.")
             return 0
 
+        # The audit trail references users (migration 3), so the name must be
+        # a real account. Checked before the backup so a typo costs nothing.
+        if not conn.execute("SELECT 1 FROM users WHERE username = ?", (args.user,)).fetchone():
+            print(f"error: --user {args.user!r} is not an account in this database",
+                  file=sys.stderr)
+            return 2
+
         backup_path = backup_database(args.db_path, keep=0)  # verified; prune nothing
         print(f"Backup written to {backup_path}")
 
