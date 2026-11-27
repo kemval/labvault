@@ -28,15 +28,15 @@ def add_result(db, sample_id, value, notes, test="Potency (% Label Claim)"):
 
 
 @pytest.fixture
-def dup_db(fresh_db):
-    add_sample(fresh_db, "D-1")
-    add_result(fresh_db, "D-1", 86.2, "Result 86.2% below 90% specification.")  # id 1, kept
-    add_result(fresh_db, "D-1", 101.1, "Within specification.")                 # id 2, simulated dupe
-    add_result(fresh_db, "D-1", 99.0, "Retest after column change, analyst B")  # id 3, manual retest
-    add_sample(fresh_db, "M-1", source="Manual")
-    add_result(fresh_db, "M-1", 95.0, "Within specification.")                  # id 4
-    add_result(fresh_db, "M-1", 96.0, "Within specification.")                  # id 5, manual sample
-    return fresh_db.DB_PATH
+def dup_db(lab_db):
+    add_sample(lab_db, "D-1")
+    add_result(lab_db, "D-1", 86.2, "Result 86.2% below 90% specification.")  # id 1, kept
+    add_result(lab_db, "D-1", 101.1, "Within specification.")                 # id 2, simulated dupe
+    add_result(lab_db, "D-1", 99.0, "Retest after column change, analyst B")  # id 3, manual retest
+    add_sample(lab_db, "M-1", source="Manual")
+    add_result(lab_db, "M-1", 95.0, "Within specification.")                  # id 4
+    add_result(lab_db, "M-1", 96.0, "Within specification.")                  # id 5, manual sample
+    return lab_db.DB_PATH
 
 
 def result_ids(path):
@@ -70,6 +70,13 @@ def test_apply_requires_user(dup_db):
     with pytest.raises(SystemExit):
         dedupe.main([dup_db, "--apply"])
 
+
+
+def test_apply_rejects_unknown_user_before_backup(dup_db):
+    # The audit trail references users, so a typo must fail before anything is written.
+    assert dedupe.main([dup_db, "--apply", "--user", "ghost"]) == 2
+    assert result_ids(dup_db) == [1, 2, 3, 4, 5]
+    assert glob.glob(dup_db + ".backup-*") == []
 
 def test_every_simulator_note_is_recognised():
     import random

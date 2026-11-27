@@ -58,6 +58,14 @@ def fresh_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def lab_db(fresh_db):
+    """fresh_db with the demo accounts, for tests that write as kembly etc.
+    (samples, results and audit rows must reference real users)."""
+    fresh_db.seed_users(demo=True)
+    return fresh_db
+
+
+@pytest.fixture
 def settings(monkeypatch):
     """Set LabVault settings explicitly so no ambient env or secrets leak in."""
     def _set(demo="", admin_password=""):

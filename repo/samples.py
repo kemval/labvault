@@ -7,14 +7,15 @@ from repo.core import get_conn, run_in
 
 def insert_sample(data: dict, conn=None) -> bool:
     """
-    Insert a sample row; returns False if the sample_id already exists
-    (INSERT OR IGNORE). Pass `conn` to join the caller's transaction — the
+    Insert a sample row; returns False if the sample_id already exists.
+    Only that conflict is ignored — invalid values raise IntegrityError
+    (INSERT OR IGNORE would silently drop them too). Pass `conn` to join the caller's transaction — the
     caller then clears caches after commit. App code should use
     services.register_sample, which also writes the audit row.
     """
     def run(c):
         return c.execute("""
-            INSERT OR IGNORE INTO samples
+            INSERT INTO samples
                 (sample_id, product_name, lot_number, manufacturer, sample_type,
                  recall_class, priority, reason_for_recall, collection_date,
                  status, assigned_to, protocol_id, notes, source)
@@ -22,6 +23,7 @@ def insert_sample(data: dict, conn=None) -> bool:
                 (:sample_id, :product_name, :lot_number, :manufacturer, :sample_type,
                  :recall_class, :priority, :reason_for_recall, :collection_date,
                  :status, :assigned_to, :protocol_id, :notes, :source)
+            ON CONFLICT (sample_id) DO NOTHING
         """, data).rowcount == 1
 
     return run_in(conn, run)

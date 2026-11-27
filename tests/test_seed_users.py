@@ -4,7 +4,8 @@ from config import ConfigError, demo_mode
 
 
 def usernames(db):
-    return sorted(u["username"] for u in db.get_all_users())
+    # Login accounts only — the system/simulator accounts always exist.
+    return sorted(u["username"] for u in db.get_all_users() if u["role"] != "system")
 
 
 def test_demo_mode_seeds_demo_accounts(fresh_db):

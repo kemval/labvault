@@ -47,7 +47,8 @@ def show():
     st.markdown("#### Registered Users")
     users = get_all_users()
     for u in users:
-        role_badge = "🔴 Admin" if u["role"] == "admin" else "🔵 Lab Tech"
+        role_badge = {"admin": "🔴 Admin", "lab_tech": "🔵 Lab Tech",
+                      "system": "⚪ System (cannot log in)"}.get(u["role"], u["role"])
         st.markdown(f"- **{u['username']}** — {role_badge}")
 
     # Demo credentials are public by design — only shown on demo instances.

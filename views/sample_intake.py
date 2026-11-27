@@ -5,6 +5,7 @@ pages/sample_intake.py — Register new samples manually
 import streamlit as st
 from datetime import date
 from db import get_all_protocols, get_lab_techs
+from views.ui import UNASSIGNED
 import services
 
 
@@ -36,7 +37,7 @@ def show():
             recall_class    = st.selectbox("Classification", ["Class I", "Class II", "Class III"])
             priority        = st.selectbox("Priority", ["Critical", "Major", "Minor"])
             collection_date = st.date_input("Collection Date", value=date.today())
-            assigned_to     = st.selectbox("Assign To", techs if techs else ["kembly"])
+            assigned_to     = st.selectbox("Assign To", [UNASSIGNED] + techs)
 
         reason = st.text_area("Reason for Testing / Nonconformance", placeholder="Describe the reason this sample was submitted for testing...")
         proto_choice = st.selectbox("Assign Protocol", ["None"] + list(proto_options.keys()))
@@ -61,7 +62,7 @@ def show():
             "priority":          priority,
             "reason_for_recall": reason,
             "collection_date":   collection_date.strftime("%Y-%m-%d"),
-            "assigned_to":       assigned_to,
+            "assigned_to":       None if assigned_to == UNASSIGNED else assigned_to,
             "protocol_id":       proto_id,
             "notes":             notes,
         }, user["username"])

@@ -27,7 +27,7 @@ MIN_ADMIN_PASSWORD_LENGTH = 12
 
 def seed_users(demo: bool, admin_password=None):
     """
-    Create the initial accounts — only when the users table is empty, so
+    Create the initial accounts — only when no login accounts exist, so
     accounts that were deleted or changed later are never silently re-created.
 
     Demo mode seeds DEMO_USERS. Secure mode seeds a single `admin` with the
@@ -37,7 +37,9 @@ def seed_users(demo: bool, admin_password=None):
     """
     conn = get_conn()
     try:
-        has_users = conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+        # The non-login system accounts (migration 3) don't count as set up.
+        has_users = conn.execute(
+            "SELECT 1 FROM users WHERE role != 'system' LIMIT 1").fetchone() is not None
 
         if not demo:
             exposed = [
@@ -85,11 +87,12 @@ def authenticate(username: str, password: str):
     Look up a user by username + hashed password.
     Returns the full user row as a dict, or None if credentials don't match.
     We hash the input before querying so the DB never sees a plaintext password.
+    System accounts (imports, simulator, migrations) can never log in.
     """
     conn = get_conn()
     c = conn.cursor()
     row = c.execute("""
-        SELECT * FROM users WHERE username = ? AND password = ?
+        SELECT * FROM users WHERE username = ? AND password = ? AND role != 'system'
     """, (username, hash_pw(password))).fetchone()
     conn.close()
     return dict(row) if row else None

@@ -300,7 +300,9 @@ def parse_records(records: list, techs: list) -> tuple:
     results only for samples that are actually new.
     Returns (parsed, skipped) where skipped counts unusable records.
     """
-    techs = techs or ["kembly", "carlos", "maria"]
+    # No lab techs yet (e.g. a fresh secure-mode instance): leave samples
+    # unassigned rather than inventing account names.
+    techs = techs or [None]
     parsed = []
     skipped = 0  # count records we couldn't parse — usually missing sample_id
 
