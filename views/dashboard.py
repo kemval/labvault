@@ -35,8 +35,10 @@ def show():
     oos_count    = count_oos_results()          # single integer — COUNT(*) query
     audit        = get_audit_trail(limit=8)     # 8 most recent log entries
 
-    # Pull individual status counts out of the map — default to 0 if missing
-    total       = len(samples)
+    # Pull individual status counts out of the map — default to 0 if missing.
+    # The total comes from the GROUP BY counts too: `samples` holds only the
+    # 8 most recent rows, so len(samples) would cap the KPI at 8.
+    total       = sum(status_map.values())
     pending     = status_map.get("Pending", 0)
     in_progress = status_map.get("In Progress", 0)
     completed   = status_map.get("Completed", 0)
