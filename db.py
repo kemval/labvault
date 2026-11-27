@@ -36,9 +36,20 @@ def get_lab_techs():
 # ─────────────────────────────────────────────
 
 @st.cache_data(ttl=30)
-def get_audit_trail(limit: int = 200):
+def get_audit_trail(limit: int = 200, exclude_actions: tuple = ()):
     """Most recent audit entries, newest first. Short TTL: should feel live."""
-    return audit.recent_audit(limit)
+    return audit.recent_audit(limit, exclude_actions)
+
+
+@st.cache_data(ttl=30)
+def get_audit_page(user: str = "", action: str = "", limit: int = 100, offset: int = 0):
+    """(rows, total) for one filtered page of the full audit trail."""
+    return audit.search_audit(user, action, limit, offset)
+
+
+@st.cache_data(ttl=30)
+def get_audit_actions():
+    return audit.audit_actions()
 
 
 # ─────────────────────────────────────────────
@@ -119,7 +130,14 @@ def clear_data_caches():
     for cached in (get_all_samples, get_recent_samples, count_samples_by_status,
                    count_samples_by_priority, count_simulated, sample_exists,
                    get_results_for_sample, get_all_results, get_oos_results,
-                   count_oos_results, get_audit_trail):
+                   count_oos_results):
+        cached.clear()
+    clear_audit_cache()
+
+
+def clear_audit_cache():
+    """After writing only audit rows (sign-in events, exports)."""
+    for cached in (get_audit_trail, get_audit_page, get_audit_actions):
         cached.clear()
 
 

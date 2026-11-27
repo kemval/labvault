@@ -9,8 +9,8 @@ from test_app_login import login, run_app
 def import_calls(monkeypatch):
     calls = []
 
-    def fake(limit=100, only_if_empty=False):
-        calls.append(only_if_empty)
+    def fake(limit=100, only_if_empty=False, user="system"):
+        calls.append((only_if_empty, user))
         return {"success": False, "error": "API down", "count": 0}
 
     monkeypatch.setattr(services, "import_fda", fake)
@@ -21,7 +21,7 @@ def test_failed_auto_import_is_attempted_once_and_reported(fresh_db, settings, i
     settings(demo="true")
     at = login(run_app(), "kembly", "lab2024")
 
-    assert import_calls == [True]  # once, and only-if-empty
+    assert import_calls == [(True, "kembly")]  # once, only-if-empty, credited to the user
     assert any("Could not import FDA data: API down" in e.value for e in at.error)
     assert any("Ask an administrator" in e.value for e in at.error)
 
@@ -29,7 +29,7 @@ def test_failed_auto_import_is_attempted_once_and_reported(fresh_db, settings, i
     for page in ["🔬  Sample Tracking", "📊  Dashboard"]:
         at.sidebar.radio[0].set_value(page).run()
         assert not at.exception, at.exception
-    assert import_calls == [True]
+    assert import_calls == [(True, "kembly")]
 
 
 def test_admin_gets_retry_hint(fresh_db, settings, import_calls):
@@ -49,3 +49,10 @@ def test_no_auto_import_when_samples_exist(fresh_db, settings, import_calls):
     })
     login(run_app(), "admin", "admin123")
     assert import_calls == []
+
+
+def test_admin_import_button_credits_the_admin(fresh_db, settings, import_calls):
+    settings(demo="true")
+    at = login(run_app(), "admin", "admin123")        # auto-import fails (fake API down)
+    next(b for b in at.sidebar.button if "Import FDA Data" in b.label).click().run()
+    assert import_calls == [(True, "admin"), (False, "admin")]

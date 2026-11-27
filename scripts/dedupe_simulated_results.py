@@ -19,7 +19,7 @@ import argparse
 import os
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from seed import SIMULATOR_NOTES  # noqa: E402  (single source of the note patterns)
@@ -77,7 +77,7 @@ def main(argv=None):
                 INSERT INTO audit_trail (timestamp, user, action, module, target_id, detail)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"), args.user,
+                datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), args.user,
                 "RESULTS_DEDUPLICATED", "Maintenance", "bulk",
                 f"Removed {len(dupes)} duplicate simulated test results created by "
                 f"repeated FDA imports (audit C5). Backup: {backup_path}",

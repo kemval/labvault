@@ -85,7 +85,7 @@ I approached this project as if I were building an internal tool for a real phar
 
 3. **Role-Based Access Control** — Admins and lab technicians have different permissions, mirroring real organizational hierarchies in pharma.
 
-4. **Immutable Audit Trail** — Every action (sample creation, status change, result entry, report export) is logged with timestamp, user, and detail. This is a core GxP requirement.
+4. **Append-Only Audit Trail** — Every change (sample creation, status change, result entry), report download and sign-in is logged in the same transaction as the change, with a UTC timestamp, the user, old and new values, and the reason for the change. Database triggers reject edits and deletions of audit rows.
 
 5. **OOS Detection & Alerting** — Results that fall outside specification limits are automatically flagged, appearing on the dashboard as alerts requiring investigation — exactly how real OOS workflows operate.
 
@@ -212,14 +212,15 @@ I approached this project as if I were building an internal tool for a real phar
 - **Excel export** (.xlsx) with 3 sheets: Samples, Test Results, OOS-Only
 - **PDF export** (.pdf) with formatted tables, headers, and OOS highlights
 - **Filterable exports**: Choose which statuses and priorities to include
-- Audit-logged: Every export is recorded in the audit trail
+- Audit-logged: every download is recorded in the audit trail
 
-### 7. 🕵️ Audit Trail (GxP Compliance)
-- **Immutable log** of every system action
-- Captured fields: Timestamp, User, Action, Module, Target ID, Detail
-- Filterable by user and action type
+### 7. 🕵️ Audit Trail
+- **Append-only log**: database triggers reject UPDATE and DELETE on audit rows
+- Captured fields: Timestamp (UTC), User, Action, Module, Target ID, Old Value, New Value, Reason, Detail
+- Status and assignment changes require a reason
+- Sign-ins, failed sign-ins and sign-outs are recorded
+- Filterable by user and action type; paged, so every entry is reachable
 - Color-coded action types for rapid scanning
-- Supports up to 500 entries per view with scroll
 
 ### 8. ⚙️ Admin Panel
 - System overview with key metrics
@@ -369,11 +370,11 @@ While LabVault is a prototype, it was designed with pharmaceutical regulatory aw
 
 | GxP Principle | LabVault Implementation |
 |---|---|
-| **Data Integrity (ALCOA+)** | Audit trail captures every action with timestamp, user, and detail |
+| **Data Integrity (ALCOA+)** | Each change and its audit row are saved in one transaction, with old value, new value and reason |
 | **Attributable** | Every test result, status change, and sample creation is linked to a specific user |
 | **Legible** | Structured data storage in normalized SQLite tables |
-| **Contemporaneous** | Timestamps automatically recorded at the moment of action |
-| **Original** | Audit trail is append-only (INSERT only, no UPDATE/DELETE) |
+| **Contemporaneous** | UTC timestamps recorded at the moment of action |
+| **Original** | Audit trail is append-only, enforced by database triggers |
 | **Accurate** | OOS detection uses defined specification limits, not manual judgment |
 | **21 CFR Part 11** | User authentication, audit trail, role-based access (electronic records) |
 | **EU Annex 11** | Computerized systems validation awareness in design |
@@ -491,7 +492,7 @@ labvault/
 │   ├── test_results.py     # Test result entry & OOS-flagged result viewer
 │   ├── protocols.py        # GxP protocol viewer & creator
 │   ├── reports.py          # PDF/Excel report generation with filters
-│   ├── audit_trail.py      # Immutable action log with color-coded entries
+│   ├── audit_trail.py      # Append-only audit log, filtered and paged
 │   └── admin.py            # System overview & user management
 ├── README.md               # This file
 ├── LICENSE                 # MIT License

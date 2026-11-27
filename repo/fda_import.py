@@ -3,17 +3,19 @@ repo/fda_import.py — write a parsed openFDA batch (ADR 0002).
 """
 
 import sqlite3
-from datetime import datetime
 
+from repo.audit import write_audit
 from repo.core import get_conn
 
 
-def write_batch(parsed: list, skipped: int, only_if_empty: bool = False) -> dict:
+def write_batch(parsed: list, skipped: int, user: str = "system",
+                only_if_empty: bool = False) -> dict:
     """
     Store (sample, results) pairs from seed.parse_records in one transaction.
     Results are written only for samples that are actually new; with
     only_if_empty=True the write is skipped if any samples exist, checked
-    under the write lock. Returns the import summary dict.
+    under the write lock. The audit row is credited to `user` — the person
+    who started the import. Returns the import summary dict.
     """
     if not parsed:
         # Nothing to insert (maybe all records were malformed) — still a "success"
@@ -78,16 +80,11 @@ def write_batch(parsed: list, skipped: int, only_if_empty: bool = False) -> dict
 
         # One summary audit entry instead of one per record — 100 individual
         # entries would flood the audit trail and make it unreadable.
-        conn.execute("""
-            INSERT INTO audit_trail (timestamp, user, action, module, target_id, detail)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "system", "SAMPLE_IMPORTED", "FDA Seed", "bulk",
+        write_audit(
+            conn, user, "SAMPLE_IMPORTED", "FDA Seed", "bulk",
             f"Imported {len(inserted_ids)} new FDA recall records with "
             f"{len(new_results)} test results ({already_present} already present, "
-            f"{skipped} skipped)."
-        ))
+            f"{skipped} skipped)." + (" Automatic first-run import." if only_if_empty else ""))
 
         conn.commit()
     except BaseException:

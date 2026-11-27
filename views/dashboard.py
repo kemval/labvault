@@ -4,6 +4,7 @@ Overview of all KPIs, sample status, OOS alerts, and recent audit activity.
 """
 
 import streamlit as st
+from repo.audit import SESSION_ACTIONS
 import pandas as pd
 from db import (
     get_recent_samples, get_oos_results, get_audit_trail,
@@ -34,7 +35,8 @@ def show():
     status_map   = count_samples_by_status()    # {"Pending": 12, "Completed": 45, ...}
     priority_map = count_samples_by_priority()  # {"Critical": 5, "Major": 30, ...}
     oos_count    = count_oos_results()          # single integer — COUNT(*) query
-    audit        = get_audit_trail(limit=8)     # 8 most recent log entries
+    # 8 most recent data changes — sign-in events would crowd them out
+    audit        = get_audit_trail(limit=8, exclude_actions=SESSION_ACTIONS)
 
     # Pull individual status counts out of the map — default to 0 if missing.
     # The total comes from the GROUP BY counts too: `samples` holds only the

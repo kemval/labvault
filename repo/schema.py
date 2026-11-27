@@ -361,10 +361,30 @@ def _m003_constraints(conn):
         raise MigrationError(f"Migration 3: foreign key check failed: {violations[:10]}")
 
 
+def _m004_audit_trail(conn):
+    """
+    Audit C3: structured change records and an append-only trail (ADR 0008).
+    Adds old_value / new_value / reason, and triggers that make any UPDATE or
+    DELETE on audit_trail fail. Existing rows are left exactly as they are.
+    A later migration that must rebuild audit_trail has to drop and recreate
+    these triggers inside its own transaction.
+    """
+    for column in ("old_value", "new_value", "reason"):
+        conn.execute(f"ALTER TABLE audit_trail ADD COLUMN {column} TEXT")
+    for event in ("UPDATE", "DELETE"):
+        conn.execute(f"""
+            CREATE TRIGGER audit_trail_no_{event.lower()}
+            BEFORE {event} ON audit_trail
+            BEGIN
+                SELECT RAISE(ABORT, 'audit_trail is append-only');
+            END""")
+
+
 MIGRATIONS = [
     _m001_simulated_flag,
     _m002_sample_version,
     _m003_constraints,
+    _m004_audit_trail,
 ]
 
 

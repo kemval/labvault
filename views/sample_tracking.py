@@ -12,7 +12,8 @@ STATUS_OPTIONS = ["Pending", "In Progress", "Completed", "Rejected"]
 
 
 def _form_keys(sample_id):
-    return [f"status_{sample_id}", f"assign_{sample_id}", f"version_{sample_id}"]
+    return [f"status_{sample_id}", f"assign_{sample_id}", f"reason_{sample_id}",
+            f"version_{sample_id}"]
 
 
 def _request_reload(sample_id):
@@ -141,6 +142,11 @@ def show():
                 else:
                     new_assignee = s["assigned_to"]
 
+                reason = st.text_input(
+                    "Reason for change *", key=f"reason_{s['sample_id']}",
+                    placeholder="e.g. Analysis started; reassigned for workload",
+                    help="Required for any change — recorded in the audit trail.")
+
                 if st.button("💾 Save Changes", key=f"save_{s['sample_id']}", type="primary"):
                     # One transaction for both fields + their audit rows. The
                     # version is the one this form was opened with: if someone
@@ -148,7 +154,7 @@ def show():
                     try:
                         changed = services.update_sample(
                             s["sample_id"], form_version, user["username"],
-                            status=new_status, assigned_to=new_assignee)
+                            status=new_status, assigned_to=new_assignee, reason=reason)
                     except services.ServiceError as e:
                         st.error(str(e))
                     else:

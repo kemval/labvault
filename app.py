@@ -9,7 +9,7 @@ from config import ConfigError, demo_mode, admin_password
 from db import sample_exists, count_simulated, clear_user_caches
 from repo.protocols import seed_protocols
 from repo.schema import init_db
-from repo.users import DEMO_USERS, authenticate, seed_users
+from repo.users import DEMO_USERS, seed_users
 import services
 
 # ─────────────────────────────────────────────
@@ -223,9 +223,9 @@ def show_login():
         password = st.text_input("Password", type="password", placeholder="••••••••")
 
         if st.button("Sign In", use_container_width=True, type="primary"):
-            # authenticate() checks the hashed password in the DB —
+            # sign_in() checks the hashed password and audits the attempt —
             # returns a user dict on success, None on failure.
-            user = authenticate(username, password)
+            user = services.sign_in(username, password)
             if user:
                 st.session_state.logged_in = True
                 st.session_state.user = user
@@ -291,7 +291,7 @@ def show_sidebar():
                 st.warning("No samples yet. Import FDA data.")
             if st.button("🔄 Import FDA Data", use_container_width=True):
                 with st.spinner("Fetching real FDA recall records..."):
-                    result = services.import_fda(limit=100)
+                    result = services.import_fda(limit=100, user=user["username"])
                 if result["success"]:
                     st.success(f"✅ Imported {result['count']} new samples "
                                f"({result['already_present']} already present)")
@@ -302,6 +302,7 @@ def show_sidebar():
 
         # Sign out clears session state and forces a rerun back to the login screen
         if st.button("Sign Out", use_container_width=True):
+            services.sign_out(user["username"])
             st.session_state.logged_in = False
             st.session_state.user = None
             st.rerun()
@@ -363,7 +364,8 @@ else:
     if not st.session_state.auto_import_attempted and not sample_exists():
         st.session_state.auto_import_attempted = True
         with st.spinner("🔬 First launch — importing real FDA pharmaceutical data..."):
-            result = services.import_fda(limit=100, only_if_empty=True)
+            result = services.import_fda(limit=100, only_if_empty=True,
+                                         user=st.session_state.user["username"])
         if result["success"]:
             st.success(f"✅ {result['count']} real FDA recall records imported. Welcome to LabVault!")
             st.rerun()

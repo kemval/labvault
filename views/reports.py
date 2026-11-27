@@ -162,6 +162,11 @@ def build_pdf(samples, results):
     return output.getvalue()
 
 
+def _log_download(username, detail):
+    """download_button callback: the export is audited when it leaves the app."""
+    services.log_event(username, "REPORT_EXPORTED", "Reports", "", f"Downloaded {detail}")
+
+
 def show():
     st.markdown("""
         <div class="lv-header">
@@ -224,10 +229,11 @@ def show():
             with st.spinner("Building Excel report..."):
                 try:
                     excel_data = build_excel(filtered_samples, filtered_results)
-                    services.log_event(user["username"], "REPORT_EXPORTED", "Reports",
-                               "", f"Excel: {len(filtered_samples)} samples, {len(filtered_results)} results")
                     st.download_button(
                         label="⬇️ Download Excel",
+                        # Audited when the file is actually downloaded, not built.
+                        on_click=_log_download,
+                        args=(user["username"], f"Excel: {len(filtered_samples)} samples, {len(filtered_results)} results"),
                         data=excel_data,
                         file_name=f"LabVault_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -243,10 +249,11 @@ def show():
             with st.spinner("Building PDF report..."):
                 try:
                     pdf_data = build_pdf(filtered_samples, filtered_results)
-                    services.log_event(user["username"], "REPORT_EXPORTED", "Reports",
-                               "", f"PDF: {len(filtered_samples)} samples")
                     st.download_button(
                         label="⬇️ Download PDF",
+                        # Audited when the file is actually downloaded, not built.
+                        on_click=_log_download,
+                        args=(user["username"], f"PDF: {len(filtered_samples)} samples"),
                         data=pdf_data,
                         file_name=f"LabVault_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                         mime="application/pdf",
