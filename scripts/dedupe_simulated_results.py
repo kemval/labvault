@@ -23,6 +23,7 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from seed import SIMULATOR_NOTES  # noqa: E402  (single source of the note patterns)
+from scripts.backup_db import backup_database  # noqa: E402
 
 
 def find_duplicates(conn):
@@ -60,9 +61,7 @@ def main(argv=None):
                 print("Dry run — nothing deleted. Re-run with --apply --user <name> to delete.")
             return 0
 
-        backup_path = f"{args.db_path}.backup-{datetime.now():%Y%m%d-%H%M%S}"
-        with sqlite3.connect(backup_path) as backup:
-            conn.backup(backup)
+        backup_path = backup_database(args.db_path, keep=0)  # verified; prune nothing
         print(f"Backup written to {backup_path}")
 
         with conn:  # one transaction: deletes + audit entry, or nothing

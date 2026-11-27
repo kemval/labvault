@@ -26,6 +26,7 @@ env/
 # ─── Database (regenerated on first run) ──────
 labvault.db
 labvault.db.backup-*
+labvault.db.replaced-*
 labvault.db-*
 
 # ─── Streamlit ────────────────────────────────

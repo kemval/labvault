@@ -448,6 +448,12 @@ In secure mode it also refuses to start on a database that still contains demo p
 | Lab Technician | `carlos` | `lab2024` |
 | Lab Technician | `maria` | `lab2024` |
 
+### Backups
+
+Use `scripts/backup_db.py` for verified online backups and safe restores. See the
+[backup & restore runbook](docs/operations/backup-restore.md). On Streamlit Community
+Cloud the app's disk is not durable, so treat that instance as disposable demo data.
+
 ### Running Tests
 
 ```bash
