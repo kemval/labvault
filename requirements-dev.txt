@@ -1,2 +1,4 @@
 -r requirements.txt
 pytest>=8
+ruff>=0.17
+pip-audit>=2.10

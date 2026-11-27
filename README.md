@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" />
+  <img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/Streamlit-1.32+-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white" />
   <img src="https://img.shields.io/badge/SQLite-3-003B57?style=for-the-badge&logo=sqlite&logoColor=white" />
   <img src="https://img.shields.io/badge/openFDA-API-0059B3?style=for-the-badge&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCI+PHRleHQgeD0iNCIgeT0iMTgiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IndoaXRlIj7wn4+bPC90ZXh0Pjwvc3ZnPg==&logoColor=white" />
@@ -234,7 +234,7 @@ I approached this project as if I were building an internal tool for a real phar
 | Layer | Technology | Why I Chose It |
 |---|---|---|
 | **Frontend** | Streamlit 1.32+ | Rapid prototyping with Python-native UI; ideal for data-heavy applications in regulated environments |
-| **Backend** | Python 3.10+ | Industry standard for scientific computing, data pipelines, and lab automation |
+| **Backend** | Python 3.11+ | Industry standard for scientific computing, data pipelines, and lab automation |
 | **Database** | SQLite 3 | Zero-config, file-based, ACID-compliant; suitable for single-site LIMS |
 | **External API** | openFDA Drug Enforcement | Real-world regulatory data source maintained by the U.S. FDA |
 | **PDF Generation** | ReportLab | Professional-grade PDF output used in pharma document management |
@@ -394,7 +394,7 @@ While LabVault is a prototype, it was designed with pharmaceutical regulatory aw
 
 ### Prerequisites
 
-- **Python 3.10+** installed
+- **Python 3.11+** installed
 - **pip** package manager
 - Internet connection (for initial FDA data import)
 
@@ -459,7 +459,10 @@ Cloud the app's disk is not durable, so treat that instance as disposable demo d
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest
+ruff check .
 ```
+
+CI (`.github/workflows/ci.yml`) runs ruff, the test suite on Python 3.11 and 3.12, and `pip-audit` on every pull request.
 
 ---
 

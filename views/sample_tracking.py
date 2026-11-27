@@ -3,8 +3,7 @@ pages/sample_tracking.py — View, filter, and update sample status
 """
 
 import streamlit as st
-import pandas as pd
-from db import get_all_samples, update_sample_status, update_sample_assignment, get_lab_techs, log_action
+from db import get_all_samples, update_sample_status, update_sample_assignment, get_lab_techs
 from views.ui import esc, SIMULATED_LABEL
 
 
