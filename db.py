@@ -149,6 +149,49 @@ def init_db():
     conn.commit()
     conn.close()
 
+    apply_migrations()
+
+
+# ─────────────────────────────────────────────
+# SCHEMA MIGRATIONS
+# ─────────────────────────────────────────────
+# The CREATE TABLE statements above are the baseline schema (version 0) and
+# must never change. Every later schema change is appended to MIGRATIONS as a
+# function taking an open connection; its position + 1 is its version, stored
+# in SQLite's PRAGMA user_version. Never edit or reorder a released migration.
+# See docs/adr/0003-schema-migrations.md.
+
+MIGRATIONS = []
+
+
+def schema_version(conn) -> int:
+    return conn.execute("PRAGMA user_version").fetchone()[0]
+
+
+def apply_migrations(migrations=None):
+    """
+    Apply pending migrations, each in its own transaction. BEGIN IMMEDIATE
+    takes the write lock before the version is re-read, so two processes
+    starting together can't apply the same migration twice.
+    """
+    migrations = MIGRATIONS if migrations is None else migrations
+    conn = get_conn()
+    try:
+        for version, migrate in enumerate(migrations, start=1):
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                if schema_version(conn) >= version:
+                    conn.rollback()
+                    continue
+                migrate(conn)
+                conn.execute(f"PRAGMA user_version = {int(version)}")
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+    finally:
+        conn.close()
+
 
 # ─────────────────────────────────────────────
 # CACHE HELPERS — called after writes to keep UI in sync
