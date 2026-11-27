@@ -13,6 +13,7 @@ import pandas as pd
 import streamlit as st
 
 from db import get_audit_actions, get_audit_page
+from views.ui import page_header
 
 PAGE_SIZE = 100
 
@@ -28,12 +29,7 @@ ACTION_COLORS = {
 
 
 def show():
-    st.markdown("""
-        <div class="lv-header">
-            <div><h1>🕵️ Audit Trail</h1>
-            <span>Append-only record of every change, export and sign-in</span></div>
-        </div>
-    """, unsafe_allow_html=True)
+    page_header("🕵️ Audit Trail", "Append-only record of every change, export and sign-in")
 
     col1, col2 = st.columns(2)
     with col1:

@@ -5,11 +5,18 @@ samples with simulated lab results. Pure Python — no database access; the
 batch is written by repo/fda_import.py via services.import_fda().
 """
 
+import logging
 import re
 import requests
 import random
 import string
 from datetime import datetime, timedelta
+
+from domain import (PRIORITY_CRITICAL, PRIORITY_MAJOR, PRIORITY_MINOR, RESULT_OOS,
+                    RESULT_PASS, SIMULATOR_USER, SOURCE_FDA, STATUS_COMPLETED,
+                    STATUS_IN_PROGRESS, STATUS_PENDING)
+
+log = logging.getLogger(__name__)
 
 # The openFDA drug enforcement endpoint — completely free, no API key needed.
 # It returns real recall records filed with the FDA. Pretty incredible that
@@ -20,7 +27,6 @@ FDA_URL = "https://api.fda.gov/drug/enforcement.json"
 # the lot number, assignment, lab status and every test result are invented.
 # They are stored with is_simulated = 1 and attributed to this pseudo-user,
 # never to a real analyst.
-SIMULATOR_USER = "simulator"
 
 # Every note simulate_test_results() can write. Used to recognise simulated
 # results in databases created before the is_simulated flag existed.
@@ -48,17 +54,17 @@ SIMULATOR_NOTES = re.compile(
 # our own priority labels so the UI stays consistent across FDA imports
 # and manually registered samples.
 CLASS_TO_PRIORITY = {
-    "Class I":   "Critical",   # life-threatening or serious adverse health consequences
-    "Class II":  "Major",      # may cause temporary adverse health effects
-    "Class III": "Minor",      # unlikely to cause any adverse health consequences
+    "Class I":   PRIORITY_CRITICAL,   # life-threatening or serious adverse health consequences
+    "Class II":  PRIORITY_MAJOR,      # may cause temporary adverse health effects
+    "Class III": PRIORITY_MINOR,      # unlikely to cause any adverse health consequences
 }
 
 # FDA's recall status labels don't match our workflow states, so we translate.
 # "Terminated" means the recall process officially ended — we treat that as Completed.
 STATUS_MAP = {
-    "Ongoing":    "In Progress",
-    "Completed":  "Completed",
-    "Terminated": "Completed",
+    "Ongoing":    STATUS_IN_PROGRESS,
+    "Completed":  STATUS_COMPLETED,
+    "Terminated": STATUS_COMPLETED,
 }
 
 # ─────────────────────────────────────────────
@@ -125,7 +131,7 @@ def simulate_test_results(sample_id: str, reason: str, sample_type: str,
             "sample_id": sample_id, "test_name": "Dissolution (60 min)",
             "result_value": value, "result_unit": "%",
             "spec_min": 80.0, "spec_max": None,
-            "status": "Fail (OOS)",
+            "status": RESULT_OOS,
             "tested_by": tested_by, "tested_at": rnd_date(tested_at),
             "notes": f"Failed USP Apparatus II. Result {value}% below Q=80% specification."
         })
@@ -136,7 +142,7 @@ def simulate_test_results(sample_id: str, reason: str, sample_type: str,
             "sample_id": sample_id, "test_name": "Potency (% Label Claim)",
             "result_value": pot, "result_unit": "%",
             "spec_min": 90.0, "spec_max": 110.0,
-            "status": "Pass",
+            "status": RESULT_PASS,
             "tested_by": tested_by, "tested_at": rnd_date(tested_at),
             "notes": "Within specification."
         })
@@ -150,7 +156,7 @@ def simulate_test_results(sample_id: str, reason: str, sample_type: str,
             "sample_id": sample_id, "test_name": "Potency (% Label Claim)",
             "result_value": value, "result_unit": "%",
             "spec_min": 90.0, "spec_max": 110.0,
-            "status": "Fail (OOS)",
+            "status": RESULT_OOS,
             "tested_by": tested_by, "tested_at": rnd_date(tested_at),
             "notes": f"Superpotency confirmed. Result {value}% exceeds 110% upper limit."
         })
@@ -164,7 +170,7 @@ def simulate_test_results(sample_id: str, reason: str, sample_type: str,
             "sample_id": sample_id, "test_name": "Potency (% Label Claim)",
             "result_value": value, "result_unit": "%",
             "spec_min": 90.0, "spec_max": 110.0,
-            "status": "Fail (OOS)",
+            "status": RESULT_OOS,
             "tested_by": tested_by, "tested_at": rnd_date(tested_at),
             "notes": f"Subpotency confirmed. Result {value}% below 90% lower limit."
         })
@@ -178,7 +184,7 @@ def simulate_test_results(sample_id: str, reason: str, sample_type: str,
             "sample_id": sample_id, "test_name": "Sterility / Microbial Count",
             "result_value": value, "result_unit": "CFU/mL",
             "spec_min": 0.0, "spec_max": 0.0,
-            "status": "Fail (OOS)",
+            "status": RESULT_OOS,
             "tested_by": tested_by, "tested_at": rnd_date(tested_at),
             "notes": f"Microbial contamination detected: {int(value)} CFU/mL. Sterility failure."
         })
@@ -192,7 +198,7 @@ def simulate_test_results(sample_id: str, reason: str, sample_type: str,
             "sample_id": sample_id, "test_name": "Visible Particulates",
             "result_value": value, "result_unit": "particles/container",
             "spec_min": 0.0, "spec_max": 10.0,
-            "status": "Fail (OOS)",
+            "status": RESULT_OOS,
             "tested_by": tested_by, "tested_at": rnd_date(tested_at),
             "notes": f"Visible particulate matter detected: {int(value)} particles/container."
         })
@@ -209,7 +215,7 @@ def simulate_test_results(sample_id: str, reason: str, sample_type: str,
             "sample_id": sample_id, "test_name": "pH",
             "result_value": value, "result_unit": "pH",
             "spec_min": 4.5, "spec_max": 7.5,
-            "status": "Fail (OOS)",
+            "status": RESULT_OOS,
             "tested_by": tested_by, "tested_at": rnd_date(tested_at),
             "notes": f"pH {value} outside specification range 4.5–7.5."
         })
@@ -224,7 +230,7 @@ def simulate_test_results(sample_id: str, reason: str, sample_type: str,
             "sample_id": sample_id, "test_name": "Potency (% Label Claim)",
             "result_value": pot, "result_unit": "%",
             "spec_min": 90.0, "spec_max": 110.0,
-            "status": "Pass",
+            "status": RESULT_PASS,
             "tested_by": tested_by, "tested_at": rnd_date(tested_at),
             "notes": "Product potency within spec. Recall due to labeling deficiency, not product failure."
         })
@@ -232,7 +238,7 @@ def simulate_test_results(sample_id: str, reason: str, sample_type: str,
             "sample_id": sample_id, "test_name": "Label Review",
             "result_value": None, "result_unit": "N/A",
             "spec_min": None, "spec_max": None,
-            "status": "Fail (OOS)",
+            "status": RESULT_OOS,
             "tested_by": tested_by, "tested_at": rnd_date(tested_at),
             "notes": "Label deficiency confirmed. Missing or incorrect information identified."
         })
@@ -245,11 +251,11 @@ def simulate_test_results(sample_id: str, reason: str, sample_type: str,
         oos = random.random() < 0.6   # 60% chance of failure for unclassified reasons
         if oos:
             value = round(random.uniform(70.0, 88.0), 1)
-            status = "Fail (OOS)"
+            status = RESULT_OOS
             note = f"Result {value}% below 90% specification."
         else:
             value = round(random.uniform(90.0, 110.0), 1)
-            status = "Pass"
+            status = RESULT_PASS
             note = "Within specification."
         results.append({
             "sample_id": sample_id, "test_name": "Potency (% Label Claim)",
@@ -321,20 +327,24 @@ def parse_records(records: list, techs: list) -> tuple:
                 skipped += 1
                 continue
 
-            # FDA dates come in YYYYMMDD format — convert to YYYY-MM-DD
+            # FDA dates come in YYYYMMDD format — convert to YYYY-MM-DD.
+            # An unreadable date skips the record: substituting today would
+            # invent a collection date.
             try:
                 collection_date = datetime.strptime(init_date, "%Y%m%d").strftime("%Y-%m-%d")
-            except Exception:
-                # If the date is malformed for some reason, just use today
-                collection_date = datetime.now().strftime("%Y-%m-%d")
+            except ValueError:
+                log.warning("Skipping FDA record %s: unreadable recall date %r",
+                            sample_id, init_date)
+                skipped += 1
+                continue
 
             # Product descriptions can be very long — take just the first sentence
             # and cap at 100 chars so it fits nicely in the UI cards
             product_name = product_desc.split(".")[0][:100].strip()
 
             sample_type = detect_sample_type(product_desc)
-            priority    = CLASS_TO_PRIORITY.get(recall_class, "Major")
-            status      = STATUS_MAP.get(raw_status, "Pending")
+            priority    = CLASS_TO_PRIORITY.get(recall_class, PRIORITY_MAJOR)
+            status      = STATUS_MAP.get(raw_status, STATUS_PENDING)
             assigned_to = random.choice(techs)  # random assignment for demo realism
 
             sample = {
@@ -352,7 +362,7 @@ def parse_records(records: list, techs: list) -> tuple:
                 "protocol_id":       None,  # not auto-assigned — lab tech picks the protocol
                 "notes":             (f"Imported from FDA Recall Enterprise System. Original status: {raw_status}. "
                                       "SIMULATED: lot number, assignment and test results are not real."),
-                "source":            "FDA",
+                "source":            SOURCE_FDA,
             }
 
             # Simulate test results entirely in Python — no DB hit yet
@@ -365,8 +375,11 @@ def parse_records(records: list, techs: list) -> tuple:
             )))
 
         except Exception:
-            # If any individual record blows up, skip it and keep going —
-            # don't let one bad record abort the whole import
+            # One malformed record must not abort the whole import — skip it,
+            # but leave a trace of which record and why.
+            log.warning("Skipping unparseable FDA record %r",
+                        rec.get("recall_number") if isinstance(rec, dict) else rec,
+                        exc_info=True)
             skipped += 1
             continue
 

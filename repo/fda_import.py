@@ -4,11 +4,12 @@ repo/fda_import.py — write a parsed openFDA batch (ADR 0002).
 
 import sqlite3
 
+from domain import SYSTEM_USER
 from repo.audit import write_audit
 from repo.core import get_conn
 
 
-def write_batch(parsed: list, skipped: int, user: str = "system",
+def write_batch(parsed: list, skipped: int, user: str = SYSTEM_USER,
                 only_if_empty: bool = False) -> dict:
     """
     Store (sample, results) pairs from seed.parse_records in one transaction.

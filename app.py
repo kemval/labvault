@@ -4,7 +4,10 @@ Handles login, session state, navigation, and first-run database seeding.
 Run with: streamlit run app.py
 """
 
+import importlib
+
 import streamlit as st
+from domain import ROLE_ADMIN, ROLE_LAB_TECH
 from config import ConfigError, demo_mode, admin_password
 from db import sample_exists, count_simulated, clear_user_caches
 from repo.protocols import seed_protocols
@@ -237,8 +240,8 @@ def show_login():
         # demo instances — never on a secure deployment.
         if demo_mode():
             st.markdown("---")
-            admin_user = next(u for u in DEMO_USERS if u[2] == "admin")
-            tech_user  = next(u for u in DEMO_USERS if u[2] == "lab_tech")
+            admin_user = next(u for u in DEMO_USERS if u[2] == ROLE_ADMIN)
+            tech_user  = next(u for u in DEMO_USERS if u[2] == ROLE_LAB_TECH)
             st.caption(
                 f"Demo instance — Admin: `{admin_user[0]}` / `{admin_user[1]}`  |  "
                 f"Lab Tech: `{tech_user[0]}` / `{tech_user[1]}`"
@@ -248,6 +251,20 @@ def show_login():
 # ─────────────────────────────────────────────
 # SIDEBAR NAVIGATION
 # ─────────────────────────────────────────────
+
+# Navigation: (sidebar label, page name, view module, admin only).
+# The single source for both the sidebar and route().
+PAGES = [
+    ("📊  Dashboard",       "Dashboard",       "views.dashboard",       False),
+    ("🧫  Sample Intake",   "Sample Intake",   "views.sample_intake",   False),
+    ("🔬  Sample Tracking", "Sample Tracking", "views.sample_tracking", False),
+    ("📋  Test Results",    "Test Results",    "views.test_results",    False),
+    ("📄  Protocols",       "Protocols",       "views.protocols",       False),
+    ("📈  Reports",         "Reports",         "views.reports",         False),
+    ("🕵️  Audit Trail",     "Audit Trail",     "views.audit_trail",     False),
+    ("⚙️  Admin",           "Admin",           "views.admin",           True),
+]
+
 
 def show_sidebar():
     user = st.session_state.user
@@ -259,32 +276,16 @@ def show_sidebar():
         st.markdown(f"**{user['username']}** · *{role.replace('_', ' ').title()}*")
         st.markdown("---")
 
-        # List of navigation pages — emoji prefix is decorative, stripped before routing
-        pages = [
-            "📊  Dashboard",
-            "🧫  Sample Intake",
-            "🔬  Sample Tracking",
-            "📋  Test Results",
-            "📄  Protocols",
-            "📈  Reports",
-            "🕵️  Audit Trail",
-        ]
-
-        # Admin-only page — lab techs don't need to see user management
-        if role == "admin":
-            pages.append("⚙️  Admin")
-
-        choice = st.radio("Navigation", pages, label_visibility="collapsed")
-
-        # Strip the emoji prefix (and the double-space after it) to get
-        # a clean page name like "Dashboard" or "Sample Intake"
-        clean = choice.split("  ", 1)[-1].strip()
-        st.session_state.page = clean
+        # Admin-only pages are hidden from lab techs (each view re-checks the role).
+        pages = {label: name for label, name, _, admin_only in PAGES
+                 if role == ROLE_ADMIN or not admin_only}
+        choice = st.radio("Navigation", list(pages), label_visibility="collapsed")
+        st.session_state.page = pages[choice]
 
         st.markdown("---")
 
         # FDA data import — only admins should be able to trigger a bulk import
-        if role == "admin":
+        if role == ROLE_ADMIN:
             st.markdown("**Data Management**")
             if not sample_exists():
                 # Let the admin know the DB is empty so they're not confused
@@ -314,36 +315,11 @@ def show_sidebar():
 
 def route():
     """
-    Looks at session_state.page and loads the matching view module.
-    Each view is imported lazily so we don't load everything upfront —
-    only the page the user actually navigates to gets imported.
+    Load the view for session_state.page. Views are imported lazily, so only
+    the page the user navigates to is loaded.
     """
-    page = st.session_state.page
-
-    if page == "Dashboard":
-        from views.dashboard import show
-        show()
-    elif page == "Sample Intake":
-        from views.sample_intake import show
-        show()
-    elif page == "Sample Tracking":
-        from views.sample_tracking import show
-        show()
-    elif page == "Test Results":
-        from views.test_results import show
-        show()
-    elif page == "Protocols":
-        from views.protocols import show
-        show()
-    elif page == "Reports":
-        from views.reports import show
-        show()
-    elif page == "Audit Trail":
-        from views.audit_trail import show
-        show()
-    elif page == "Admin":
-        from views.admin import show
-        show()
+    module = next(m for _, name, m, _ in PAGES if name == st.session_state.page)
+    importlib.import_module(module).show()
 
 
 # ─────────────────────────────────────────────
@@ -371,7 +347,7 @@ else:
             st.rerun()
         else:
             hint = ("Use **🔄 Import FDA Data** in the sidebar to try again."
-                    if st.session_state.user["role"] == "admin"
+                    if st.session_state.user["role"] == ROLE_ADMIN
                     else "Ask an administrator to import the data.")
             st.error(f"Could not import FDA data: {result['error']}. {hint}")
 

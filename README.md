@@ -473,6 +473,7 @@ CI (`.github/workflows/ci.yml`) runs ruff, the test suite on Python 3.11 and 3.1
 labvault/
 ├── app.py                  # Main entry point — auth, routing, global styles
 ├── config.py               # Deployment settings (demo vs. secure mode)
+├── domain.py               # Statuses, priorities, roles… defined once (must match the DB rules)
 ├── services.py             # Use cases: every data change + its audit row in one transaction
 ├── db.py                   # Cached reads for the views (the only Streamlit-aware data module)
 ├── seed.py                 # openFDA fetch + test-result simulation (pure, no database)

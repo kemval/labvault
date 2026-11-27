@@ -3,12 +3,13 @@ pages/reports.py — Export sample and test result data as PDF or Excel
 """
 
 import streamlit as st
+from domain import PRIORITIES, RESULT_OOS, SAMPLE_STATUSES
 import pandas as pd
 import io
 from datetime import datetime
 from db import get_all_samples, get_all_results
 import services
-from views.ui import simulated_text
+from views.ui import simulated_text, page_header
 
 
 def _frame(rows, columns):
@@ -56,7 +57,7 @@ def build_excel(samples, results):
             df_results.to_excel(writer, sheet_name="Test Results", index=False)
 
         # Sheet 3 — OOS Only
-        oos = [r for r in results if r["status"] == "Fail (OOS)"]
+        oos = [r for r in results if r["status"] == RESULT_OOS]
         if oos:
             df_oos = _frame(oos, [
                 "sample_id", "test_name", "result_value", "result_unit",
@@ -97,7 +98,7 @@ def build_pdf(samples, results):
     story.append(Paragraph(
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')} | "
         f"Total Samples: {len(samples)} | "
-        f"OOS Results: {len([r for r in results if r['status'] == 'Fail (OOS)'])}",
+        f"OOS Results: {len([r for r in results if r['status'] == RESULT_OOS])}",
         styles["Normal"]
     ))
     sim_samples = sum(1 for s in samples if s.get("is_simulated"))
@@ -128,7 +129,6 @@ def build_pdf(samples, results):
         ("TEXTCOLOR",  (0, 0), (-1, 0), colors.white),
         ("FONTNAME",   (0, 0), (-1, 0), "Helvetica-Bold"),
         ("FONTSIZE",   (0, 0), (-1, -1), 8),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f0f4ff")]),
         ("GRID",       (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f9ff")]),
     ]))
@@ -136,7 +136,7 @@ def build_pdf(samples, results):
     story.append(Spacer(1, 20))
 
     # OOS results
-    oos = [r for r in results if r["status"] == "Fail (OOS)"]
+    oos = [r for r in results if r["status"] == RESULT_OOS]
     if oos:
         story.append(Paragraph("Out-of-Spec (OOS) Results", styles["Heading2"]))
         oos_data = [["Sample ID", "Test", "Result", "Unit", "Spec", "Tested By"]]
@@ -168,12 +168,7 @@ def _log_download(username, detail):
 
 
 def show():
-    st.markdown("""
-        <div class="lv-header">
-            <div><h1>📈 Reports</h1>
-            <span>Export quality control data as PDF or Excel</span></div>
-        </div>
-    """, unsafe_allow_html=True)
+    page_header("📈 Reports", "Export quality control data as PDF or Excel")
 
     user    = st.session_state.user
     samples = get_all_samples()
@@ -184,7 +179,7 @@ def show():
         return
 
     # ── SUMMARY ──────────────────────────────────────────────
-    oos_count = len([r for r in results if r["status"] == "Fail (OOS)"])
+    oos_count = len([r for r in results if r["status"] == RESULT_OOS])
     c1, c2, c3 = st.columns(3)
     c1.metric("Total Samples",  len(samples))
     c2.metric("Total Results",  len(results))
@@ -198,14 +193,14 @@ def show():
     with col1:
         status_filter = st.multiselect(
             "Include Sample Statuses",
-            ["Pending", "In Progress", "Completed", "Rejected"],
-            default=["Pending", "In Progress", "Completed", "Rejected"]
+            list(SAMPLE_STATUSES),
+            default=list(SAMPLE_STATUSES)
         )
     with col2:
         priority_filter = st.multiselect(
             "Include Priorities",
-            ["Critical", "Major", "Minor"],
-            default=["Critical", "Major", "Minor"]
+            list(PRIORITIES),
+            default=list(PRIORITIES)
         )
 
     filtered_samples = [s for s in samples

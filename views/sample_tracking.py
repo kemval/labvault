@@ -3,12 +3,13 @@ pages/sample_tracking.py — View, filter, and update sample status
 """
 
 import streamlit as st
+from domain import PRIORITIES, PRIORITY_CRITICAL, PRIORITY_MAJOR, PRIORITY_MINOR, SAMPLE_STATUSES
 from db import get_all_samples, get_lab_techs
 import services
-from views.ui import esc, SIMULATED_LABEL, UNASSIGNED
+from views.ui import esc, SIMULATED_LABEL, UNASSIGNED, page_header
 
 
-STATUS_OPTIONS = ["Pending", "In Progress", "Completed", "Rejected"]
+STATUS_OPTIONS = list(SAMPLE_STATUSES)
 
 
 def _form_keys(sample_id):
@@ -36,12 +37,7 @@ def _form_version(s):
 
 
 def show():
-    st.markdown("""
-        <div class="lv-header">
-            <div><h1>🔬 Sample Tracking</h1>
-            <span>Monitor and update the status of all laboratory samples</span></div>
-        </div>
-    """, unsafe_allow_html=True)
+    page_header("🔬 Sample Tracking", "Monitor and update the status of all laboratory samples")
 
     user  = st.session_state.user
     techs = get_lab_techs()
@@ -51,7 +47,7 @@ def show():
     with col1:
         status_filter = st.selectbox("Filter by Status", ["All"] + STATUS_OPTIONS)
     with col2:
-        priority_filter = st.selectbox("Filter by Priority", ["All", "Critical", "Major", "Minor"])
+        priority_filter = st.selectbox("Filter by Priority", ["All", *PRIORITIES])
     with col3:
         search = st.text_input("Search by Sample ID or Product", placeholder="e.g. D-0318 or Metformin")
 
@@ -77,7 +73,7 @@ def show():
 
     # ── SAMPLE TABLE ─────────────────────────────────────────
     for s in samples:
-        priority_colors = {"Critical": "#d32f2f", "Major": "#f57c00", "Minor": "#2e7d32"}
+        priority_colors = {PRIORITY_CRITICAL: "#d32f2f", PRIORITY_MAJOR: "#f57c00", PRIORITY_MINOR: "#2e7d32"}
         border_color = priority_colors.get(s["priority"], "#1a4a8a")
 
         with st.expander(

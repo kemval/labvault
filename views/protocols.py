@@ -5,22 +5,15 @@ Admins can create new ones; all users can browse existing protocols.
 """
 
 import streamlit as st
+from domain import PROTOCOL_SAMPLE_TYPES, ROLE_ADMIN
+from views.ui import page_header
 from db import get_all_protocols
 import services
 
-# The complete list of sample types we support — used both here and in sample_intake.
-# Keeping this in sync with what detect_sample_type() returns in seed.py matters
-# because protocols are matched to samples by sample_type.
-SAMPLE_TYPES = ["Tablet", "Capsule", "Injectable", "Liquid", "Topical", "Powder", "Non-sterile"]
 
 
 def show():
-    st.markdown("""
-        <div class="lv-header">
-            <div><h1>📄 Protocols</h1>
-            <span>Standard GxP test protocols linked to sample types</span></div>
-        </div>
-    """, unsafe_allow_html=True)
+    page_header("📄 Protocols", "Standard GxP test protocols linked to sample types")
 
     user      = st.session_state.user
     protocols = get_all_protocols()
@@ -53,7 +46,7 @@ def show():
     with tab_create:
         # Only admins can write new protocols — lab techs can view and follow them,
         # but they shouldn't be defining the procedures themselves
-        if user["role"] != "admin":
+        if user["role"] != ROLE_ADMIN:
             st.warning("Only administrators can create protocols.")
             return
 
@@ -62,7 +55,7 @@ def show():
         with st.form("protocol_form", clear_on_submit=True):
             st.markdown("#### New Protocol")
             name        = st.text_input("Protocol Name *")
-            sample_type = st.selectbox("Applicable Sample Type", SAMPLE_TYPES)
+            sample_type = st.selectbox("Applicable Sample Type", PROTOCOL_SAMPLE_TYPES)
             description = st.text_area("Description")
             steps       = st.text_area("Procedure Steps (one per line)",
                                        placeholder="1. Prepare samples\n2. Set equipment\n3. Measure...")

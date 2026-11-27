@@ -4,13 +4,14 @@ Overview of all KPIs, sample status, OOS alerts, and recent audit activity.
 """
 
 import streamlit as st
+from domain import PRIORITY_CRITICAL, PRIORITY_MAJOR, PRIORITY_MINOR, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_PENDING, STATUS_REJECTED
 from repo.audit import SESSION_ACTIONS
 import pandas as pd
 from db import (
     get_recent_samples, get_oos_results, get_audit_trail,
     count_samples_by_status, count_samples_by_priority, count_oos_results
 )
-from views.ui import esc, simulated_text, SIMULATED_LABEL
+from views.ui import esc, simulated_text, SIMULATED_LABEL, page_header
 
 
 def show():
@@ -18,14 +19,7 @@ def show():
 
     # Header bar — uses the .lv-header CSS class defined in app.py.
     # We inject the username and today's date to make it feel personalized.
-    st.markdown(f"""
-        <div class="lv-header">
-            <div>
-                <h1>📊 Dashboard</h1>
-                <span>Welcome back, {esc(user['username'])} — {pd.Timestamp.now().strftime('%A, %B %d %Y')}</span>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
+    page_header("📊 Dashboard", f"Welcome back, {user['username']} — {pd.Timestamp.now().strftime('%A, %B %d %Y')}")
 
     # These are targeted queries — we only fetch exactly what this page needs.
     # No point loading 100 full sample rows when the dashboard just needs 8 cards
@@ -42,9 +36,9 @@ def show():
     # The total comes from the GROUP BY counts too: `samples` holds only the
     # 8 most recent rows, so len(samples) would cap the KPI at 8.
     total       = sum(status_map.values())
-    pending     = status_map.get("Pending", 0)
-    in_progress = status_map.get("In Progress", 0)
-    completed   = status_map.get("Completed", 0)
+    pending     = status_map.get(STATUS_PENDING, 0)
+    in_progress = status_map.get(STATUS_IN_PROGRESS, 0)
+    completed   = status_map.get(STATUS_COMPLETED, 0)
 
     # If the database is empty, nudge the admin to import data rather than
     # just showing a confusing blank dashboard
@@ -115,15 +109,15 @@ def show():
                 # Map each status/priority to its CSS badge class.
                 # .get() with a default means unknown statuses still get styled.
                 badge_class = {
-                    "Pending":     "badge-pending",
-                    "In Progress": "badge-progress",
-                    "Completed":   "badge-completed",
-                    "Rejected":    "badge-rejected",
+                    STATUS_PENDING:     "badge-pending",
+                    STATUS_IN_PROGRESS: "badge-progress",
+                    STATUS_COMPLETED:   "badge-completed",
+                    STATUS_REJECTED:    "badge-rejected",
                 }.get(s.get("status"), "badge-pending")
                 priority_class = {
-                    "Critical": "badge-critical",
-                    "Major":    "badge-major",
-                    "Minor":    "badge-minor",
+                    PRIORITY_CRITICAL: "badge-critical",
+                    PRIORITY_MAJOR:    "badge-major",
+                    PRIORITY_MINOR:    "badge-minor",
                 }.get(s.get("priority"), "badge-major")
                 name = s.get("product_name", "")
                 sim_badge = (f'<span class="badge badge-sim" style="margin-left:4px">'

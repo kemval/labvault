@@ -2,6 +2,7 @@
 repo/results.py — test result rows.
 """
 
+from domain import RESULT_OOS
 from repo.core import get_conn, run_in
 
 
@@ -58,10 +59,10 @@ def oos_results(limit: int = 10):
         SELECT sample_id, test_name, result_value, result_unit,
                spec_min, spec_max, tested_by, tested_at, is_simulated
         FROM   test_results
-        WHERE  status = 'Fail (OOS)'
+        WHERE  status = ?
         ORDER  BY id DESC
         LIMIT  ?
-    """, (limit,)).fetchall()
+    """, (RESULT_OOS, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -73,7 +74,7 @@ def count_oos_results():
     """
     conn = get_conn()
     count = conn.execute(
-        "SELECT COUNT(*) FROM test_results WHERE status = 'Fail (OOS)'"
+        "SELECT COUNT(*) FROM test_results WHERE status = ?", (RESULT_OOS,)
     ).fetchone()[0]
     conn.close()
     return count

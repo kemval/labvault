@@ -20,7 +20,7 @@ results logged by hand.
      sample stays real;
    - the backfill writes a `SCHEMA_MIGRATED` audit entry.
 3. New imports set the flag, record `tested_by = "simulator"`
-   (`seed.SIMULATOR_USER`), and say so in the sample notes.
+   (`domain.SIMULATOR_USER`), and say so in the sample notes.
 4. Existing rows keep their original `tested_by`. Rewriting historical
    attribution in place would itself be an unaudited change to records; the
    flag is what marks them.
