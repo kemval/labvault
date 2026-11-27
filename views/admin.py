@@ -5,7 +5,8 @@ Only accessible to users with role='admin'. Lab techs get a hard stop at the doo
 
 import streamlit as st
 from config import demo_mode
-from db import get_all_users, get_all_samples, count_samples_by_status, count_oos_results, DEMO_USERS
+from db import get_all_users, get_all_samples, count_samples_by_status, count_oos_results
+from repo.users import DEMO_USERS
 
 
 def show():

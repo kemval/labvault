@@ -11,7 +11,9 @@ See docs/adr/0005-service-layer.md.
 import uuid
 from datetime import datetime
 
-import db
+import db  # cache invalidation only
+import seed
+from repo import audit, core, fda_import, protocols, results, samples, users
 
 
 class ServiceError(Exception):
@@ -46,10 +48,10 @@ def register_sample(data: dict, user: str) -> str:
     for _ in range(_ID_ATTEMPTS):
         sample = {**data, "sample_id": _new_sample_id(),
                   "status": "Pending", "source": "Manual"}
-        with db.transaction() as conn:
-            if not db.insert_sample(sample, conn=conn):
+        with core.transaction() as conn:
+            if not samples.insert_sample(sample, conn=conn):
                 continue  # ID collision — rolls back nothing, try a new ID
-            db.write_audit(conn, user, "SAMPLE_CREATED", "Sample Intake",
+            audit.write_audit(conn, user, "SAMPLE_CREATED", "Sample Intake",
                            sample["sample_id"],
                            f"Registered: {sample['product_name']} | {sample['manufacturer']}")
         db.clear_data_caches()
@@ -77,7 +79,7 @@ def update_sample(sample_id: str, expected_version: int, user: str,
 
 
 def _update_sample(sample_id, expected_version, user, status, assigned_to) -> bool:
-    with db.transaction() as conn:
+    with core.transaction() as conn:
         row = conn.execute(
             "SELECT status, assigned_to, version FROM samples WHERE sample_id = ?",
             (sample_id,)).fetchone()
@@ -105,7 +107,7 @@ def _update_sample(sample_id, expected_version, user, status, assigned_to) -> bo
             WHERE sample_id = ? AND version = ?
         """, (new_status, new_assignee, sample_id, expected_version))
         for action, detail in changes:
-            db.write_audit(conn, user, action, "Sample Tracking", sample_id, detail)
+            audit.write_audit(conn, user, action, "Sample Tracking", sample_id, detail)
 
     db.clear_data_caches()
     return True
@@ -117,12 +119,12 @@ def _update_sample(sample_id, expected_version, user, status, assigned_to) -> bo
 
 def record_result(data: dict, user: str, audit_detail: str) -> int:
     """Store a validated test result and its audit row together; returns its id."""
-    with db.transaction() as conn:
+    with core.transaction() as conn:
         if conn.execute("SELECT 1 FROM samples WHERE sample_id = ?",
                         (data["sample_id"],)).fetchone() is None:
             raise NotFoundError(f"Sample {data['sample_id']} no longer exists.")
-        result_id = db.insert_test_result({**data, "tested_by": user}, conn=conn)
-        db.write_audit(conn, user, "RESULT_LOGGED", "Test Results",
+        result_id = results.insert_test_result({**data, "tested_by": user}, conn=conn)
+        audit.write_audit(conn, user, "RESULT_LOGGED", "Test Results",
                        data["sample_id"], audit_detail)
     db.clear_data_caches()
     return result_id
@@ -136,10 +138,43 @@ def create_protocol(data: dict, user: str) -> int:
     """Create a protocol and its audit row together; returns its id."""
     protocol = {**data, "created_by": user,
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-    with db.transaction() as conn:
-        protocol_id = db.insert_protocol(protocol, conn=conn)
-        db.write_audit(conn, user, "PROTOCOL_CREATED", "Protocols", protocol["name"],
+    with core.transaction() as conn:
+        protocol_id = protocols.insert_protocol(protocol, conn=conn)
+        audit.write_audit(conn, user, "PROTOCOL_CREATED", "Protocols", protocol["name"],
                        f"New protocol: {protocol['name']} for {protocol['sample_type']}")
-    db.get_all_protocols.clear()
-    db.get_audit_trail.clear()
+    db.clear_protocol_cache()
+    db.clear_data_caches()  # audit trail
     return protocol_id
+
+
+# ─────────────────────────────────────────────
+# FDA IMPORT
+# ─────────────────────────────────────────────
+
+def import_fda(limit: int = 100, only_if_empty: bool = False) -> dict:
+    """
+    Fetch openFDA recalls, simulate results (seed.py) and store the batch in
+    one transaction (repo/fda_import.py, ADR 0002). With only_if_empty=True
+    (the first-login auto-import) the write is skipped if samples exist.
+    Returns {success, count, already_present, skipped, error[, not_needed]}.
+    """
+    try:
+        records = seed.fetch_records(limit)
+    except Exception as e:  # network/HTTP failure — reported to the user
+        return {"success": False, "error": str(e), "count": 0}
+    parsed, skipped = seed.parse_records(records, users.lab_techs())
+    try:
+        return fda_import.write_batch(parsed, skipped, only_if_empty=only_if_empty)
+    finally:
+        db.clear_data_caches()
+
+
+# ─────────────────────────────────────────────
+# EVENTS THAT CHANGE NO DATA
+# ─────────────────────────────────────────────
+
+def log_event(user: str, action: str, module: str, target_id: str = "", detail: str = ""):
+    """Audit an event that changes no data, such as a report export."""
+    with core.transaction() as conn:
+        audit.write_audit(conn, user, action, module, target_id, detail)
+    db.clear_data_caches()  # audit trail

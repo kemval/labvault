@@ -4,7 +4,7 @@ import os
 import pytest
 from streamlit.testing.v1 import AppTest
 
-import seed
+import services
 
 APP = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app.py")
 
@@ -12,7 +12,7 @@ APP = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
     # The first-login FDA auto-import must not hit the network in tests.
-    monkeypatch.setattr(seed, "seed_from_fda",
+    monkeypatch.setattr(services, "import_fda",
                         lambda limit=100, only_if_empty=False:
                         {"success": False, "error": "offline", "count": 0})
 

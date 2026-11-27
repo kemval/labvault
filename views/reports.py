@@ -6,7 +6,8 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import datetime
-from db import get_all_samples, get_all_results, log_action
+from db import get_all_samples, get_all_results
+import services
 from views.ui import simulated_text
 
 
@@ -223,7 +224,7 @@ def show():
             with st.spinner("Building Excel report..."):
                 try:
                     excel_data = build_excel(filtered_samples, filtered_results)
-                    log_action(user["username"], "REPORT_EXPORTED", "Reports",
+                    services.log_event(user["username"], "REPORT_EXPORTED", "Reports",
                                "", f"Excel: {len(filtered_samples)} samples, {len(filtered_results)} results")
                     st.download_button(
                         label="⬇️ Download Excel",
@@ -242,7 +243,7 @@ def show():
             with st.spinner("Building PDF report..."):
                 try:
                     pdf_data = build_pdf(filtered_samples, filtered_results)
-                    log_action(user["username"], "REPORT_EXPORTED", "Reports",
+                    services.log_event(user["username"], "REPORT_EXPORTED", "Reports",
                                "", f"PDF: {len(filtered_samples)} samples")
                     st.download_button(
                         label="⬇️ Download PDF",

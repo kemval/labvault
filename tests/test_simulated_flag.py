@@ -5,6 +5,7 @@ import openpyxl
 import pytest
 
 import seed
+import services
 from fake_fda import record, serve
 from test_app_login import login, run_app  # samples always exist here, so no auto-import
 
@@ -40,30 +41,31 @@ def rows(db, sql):
 # ── migration 1 on a pre-existing database ─────────────────────────────────
 
 def test_migration_flags_existing_demo_data_only(tmp_path, monkeypatch):
-    import db
-    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "old.db"))
-    monkeypatch.setattr(db, "MIGRATIONS", [])
-    db.init_db()                                   # baseline schema, version 0
-    db.insert_sample(sample("D-1", "FDA"))
-    db.insert_test_result(result("D-1", "Within specification."))            # simulator
-    db.insert_test_result(result("D-1", "Retest by analyst B, new column"))  # hand-logged
-    db.insert_sample(sample("M-1", "Manual"))
-    db.insert_test_result(result("M-1", "Within specification."))            # real sample
-    monkeypatch.undo()
-    monkeypatch.setattr(db, "DB_PATH", str(tmp_path / "old.db"))
+    from repo import core, schema
+    from repo.results import insert_test_result
+    from repo.samples import insert_sample
+    monkeypatch.setattr(core, "DB_PATH", str(tmp_path / "old.db"))
+    with monkeypatch.context() as m:
+        m.setattr(schema, "MIGRATIONS", [])
+        schema.init_db()                           # baseline schema, version 0
+        insert_sample(sample("D-1", "FDA"))
+        insert_test_result(result("D-1", "Within specification."))            # simulator
+        insert_test_result(result("D-1", "Retest by analyst B, new column"))  # hand-logged
+        insert_sample(sample("M-1", "Manual"))
+        insert_test_result(result("M-1", "Within specification."))            # real sample
 
-    db.apply_migrations()
+    schema.apply_migrations()
 
-    flags = {r["sample_id"]: r["is_simulated"] for r in rows(db, "SELECT * FROM samples")}
+    flags = {r["sample_id"]: r["is_simulated"] for r in rows(core, "SELECT * FROM samples")}
     assert flags == {"D-1": 1, "M-1": 0}
     res = {r["notes"] + "|" + r["sample_id"]: r["is_simulated"]
-           for r in rows(db, "SELECT * FROM test_results")}
+           for r in rows(core, "SELECT * FROM test_results")}
     assert res == {"Within specification.|D-1": 1,
                    "Retest by analyst B, new column|D-1": 0,
                    "Within specification.|M-1": 0}
-    [audit] = rows(db, "SELECT * FROM audit_trail WHERE action = 'SCHEMA_MIGRATED'")
+    [audit] = rows(core, "SELECT * FROM audit_trail WHERE action = 'SCHEMA_MIGRATED'")
     assert "1 FDA-imported samples and 1 simulator-generated" in audit["detail"]
-    assert db.schema_version(db.get_conn()) == len(db.MIGRATIONS)
+    assert schema.schema_version(core.get_conn()) == len(schema.MIGRATIONS)
 
 
 def test_migration_on_empty_database_writes_no_audit(fresh_db):
@@ -74,7 +76,7 @@ def test_migration_on_empty_database_writes_no_audit(fresh_db):
 
 def test_new_imports_are_flagged_and_attributed_to_simulator(fresh_db, monkeypatch):
     serve(monkeypatch, [record(1), record(2, reason="Superpotent drug")])
-    seed.seed_from_fda(limit=2)
+    services.import_fda(limit=2)
 
     assert {r["is_simulated"] for r in rows(fresh_db, "SELECT * FROM samples")} == {1}
     results = rows(fresh_db, "SELECT * FROM test_results")
@@ -98,7 +100,7 @@ def mixed_app(fresh_db, settings, monkeypatch):
     settings(demo="true")
     fresh_db.seed_users(demo=True)
     serve(monkeypatch, [record(1)])
-    seed.seed_from_fda(limit=1)                       # D-0001-2024, simulated
+    services.import_fda(limit=1)                       # D-0001-2024, simulated
     fresh_db.insert_sample(sample("M-1", "Manual"))   # real
     return login(run_app(), "admin", "admin123")
 
@@ -135,7 +137,7 @@ def test_tracking_labels_simulated_samples(mixed_app):
 def test_excel_marks_simulated_rows(fresh_db, monkeypatch):
     from views.reports import build_excel
     serve(monkeypatch, [record(1)])
-    seed.seed_from_fda(limit=1)
+    services.import_fda(limit=1)
     fresh_db.insert_sample(sample("M-1", "Manual"))
     fresh_db.insert_test_result(result("M-1", "ok"))
 
@@ -157,7 +159,7 @@ def test_pdf_states_simulated_counts(fresh_db, monkeypatch):
     from views.reports import build_pdf
     monkeypatch.setattr(rl_config, "pageCompression", 0)
     serve(monkeypatch, [record(1)])
-    seed.seed_from_fda(limit=1)
+    services.import_fda(limit=1)
 
     pdf = build_pdf(fresh_db.get_all_samples(), fresh_db.get_all_results())
 

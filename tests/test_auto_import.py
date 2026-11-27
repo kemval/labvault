@@ -1,7 +1,7 @@
 """First-login auto-import behaviour in the real app (audit C6)."""
 import pytest
 
-import seed
+import services
 from test_app_login import login, run_app
 
 
@@ -13,7 +13,7 @@ def import_calls(monkeypatch):
         calls.append(only_if_empty)
         return {"success": False, "error": "API down", "count": 0}
 
-    monkeypatch.setattr(seed, "seed_from_fda", fake)
+    monkeypatch.setattr(services, "import_fda", fake)
     return calls
 
 

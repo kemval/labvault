@@ -1,6 +1,7 @@
 import threading
 
 import seed
+import services
 from fake_fda import record, serve
 
 
@@ -26,7 +27,7 @@ def results_per_test(db):
 
 def test_import_inserts_samples_and_results(fresh_db, monkeypatch):
     serve(monkeypatch, [record(1), record(2)])
-    result = seed.seed_from_fda(limit=2)
+    result = services.import_fda(limit=2)
     assert result["success"] and result["count"] == 2 and result["already_present"] == 0
     # A dissolution recall simulates two tests per sample.
     assert counts(fresh_db)["samples"] == 2
@@ -35,10 +36,10 @@ def test_import_inserts_samples_and_results(fresh_db, monkeypatch):
 
 def test_reimport_of_same_records_adds_nothing(fresh_db, monkeypatch):
     serve(monkeypatch, [record(1), record(2)])
-    seed.seed_from_fda(limit=2)
+    services.import_fda(limit=2)
     before = counts(fresh_db)
 
-    result = seed.seed_from_fda(limit=2)
+    result = services.import_fda(limit=2)
 
     assert result["count"] == 0 and result["already_present"] == 2
     after = counts(fresh_db)
@@ -49,9 +50,9 @@ def test_reimport_of_same_records_adds_nothing(fresh_db, monkeypatch):
 
 def test_overlapping_import_adds_only_new_samples_results(fresh_db, monkeypatch):
     serve(monkeypatch, [record(1), record(2)])
-    seed.seed_from_fda(limit=2)
+    services.import_fda(limit=2)
     serve(monkeypatch, [record(2), record(3)])
-    result = seed.seed_from_fda(limit=2)
+    result = services.import_fda(limit=2)
 
     assert result["count"] == 1 and result["already_present"] == 1
     assert counts(fresh_db)["samples"] == 3
@@ -63,7 +64,7 @@ def test_duplicate_recall_within_one_batch_keeps_first_records_results(fresh_db,
     # Same recall number twice, with different reasons → different simulated tests.
     serve(monkeypatch, [record(1, reason="Failed dissolution specifications"),
                         record(1, reason="Superpotent drug")])
-    result = seed.seed_from_fda(limit=2)
+    result = services.import_fda(limit=2)
 
     assert result["count"] == 1 and result["already_present"] == 1
     conn = fresh_db.get_conn()
@@ -75,11 +76,11 @@ def test_duplicate_recall_within_one_batch_keeps_first_records_results(fresh_db,
 
 def test_only_if_empty_is_a_noop_when_samples_exist(fresh_db, monkeypatch):
     serve(monkeypatch, [record(1)])
-    seed.seed_from_fda(limit=1)
+    services.import_fda(limit=1)
     before = counts(fresh_db)
 
     serve(monkeypatch, [record(5), record(6)])
-    result = seed.seed_from_fda(limit=2, only_if_empty=True)
+    result = services.import_fda(limit=2, only_if_empty=True)
 
     assert result["success"] and result["count"] == 0 and result.get("not_needed")
     assert counts(fresh_db) == before  # not even an audit entry
@@ -92,7 +93,7 @@ def test_concurrent_first_imports_import_once(fresh_db, monkeypatch):
     outcomes = []
 
     def first_login():
-        outcomes.append(seed.seed_from_fda(limit=2, only_if_empty=True))
+        outcomes.append(services.import_fda(limit=2, only_if_empty=True))
 
     threads = [threading.Thread(target=first_login) for _ in range(2)]
     for t in threads:
@@ -113,7 +114,7 @@ def test_concurrent_first_imports_import_once(fresh_db, monkeypatch):
 def test_import_refreshes_cached_reads(fresh_db, monkeypatch):
     assert fresh_db.sample_exists() is False  # now cached as False
     serve(monkeypatch, [record(1)])
-    seed.seed_from_fda(limit=1)
+    services.import_fda(limit=1)
     assert fresh_db.sample_exists() is True
     assert fresh_db.count_oos_results() == 1
 
@@ -123,7 +124,7 @@ def test_api_failure_reports_error_and_writes_nothing(fresh_db, monkeypatch):
         raise ConnectionError("API down")
     monkeypatch.setattr(seed.requests, "get", boom)
 
-    result = seed.seed_from_fda()
+    result = services.import_fda()
 
     assert result == {"success": False, "error": "API down", "count": 0}
     assert counts(fresh_db) == {"samples": 0, "test_results": 0, "audit_trail": 0}

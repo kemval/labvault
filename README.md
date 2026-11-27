@@ -471,11 +471,20 @@ CI (`.github/workflows/ci.yml`) runs ruff, the test suite on Python 3.11 and 3.1
 ```
 labvault/
 ├── app.py                  # Main entry point — auth, routing, global styles
-├── db.py                   # Database layer — schema, CRUD, auth, audit logging
-├── seed.py                 # FDA API integration — data fetching & test simulation
-├── requirements.txt        # Python dependencies
+├── config.py               # Deployment settings (demo vs. secure mode)
+├── services.py             # Use cases: every data change + its audit row in one transaction
+├── db.py                   # Cached reads for the views (the only Streamlit-aware data module)
+├── seed.py                 # openFDA fetch + test-result simulation (pure, no database)
+├── repo/                   # Streamlit-free persistence: SQLite connection, schema +
+│   │                       #   migrations, users, samples, results, protocols, audit, FDA batch
+│   └── ...
+├── scripts/                # backup_db.py (backup/restore), dedupe_simulated_results.py
+├── docs/                   # adr/ (architecture decisions), operations/ (runbooks)
+├── tests/                  # pytest + Streamlit AppTest suite
+├── requirements.txt        # Runtime dependencies (requirements-dev.txt adds test/lint tools)
 ├── views/
 │   ├── __init__.py         # Package marker
+│   ├── ui.py               # Shared rendering helpers (HTML escaping, SIMULATED labels)
 │   ├── dashboard.py        # KPI dashboard with charts, OOS alerts, activity feed
 │   ├── sample_intake.py    # Manual sample registration form
 │   ├── sample_tracking.py  # Sample list with filters, status updates, reassignment

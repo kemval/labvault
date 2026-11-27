@@ -3,6 +3,8 @@ import io
 
 import openpyxl
 
+import services
+
 from test_app_login import login, run_app, no_network  # noqa: F401
 
 PAYLOAD = '<img src=x onerror="alert(1)">'
@@ -33,7 +35,7 @@ def test_dashboard_escapes_stored_values(fresh_db, settings):
     settings(demo="true")
     fresh_db.seed_users(demo=True)
     add_hostile_sample(fresh_db)
-    fresh_db.log_action("kembly", "SAMPLE_CREATED", "Sample Intake", "S-X", PAYLOAD)
+    services.log_event("kembly", "SAMPLE_CREATED", "Sample Intake", "S-X", PAYLOAD)
 
     at = login(run_app(), "admin", "admin123")
     assert_escaped(at)
