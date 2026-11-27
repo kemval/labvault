@@ -149,6 +149,81 @@ def init_db():
     conn.commit()
     conn.close()
 
+    apply_migrations()
+
+
+# ─────────────────────────────────────────────
+# SCHEMA MIGRATIONS
+# ─────────────────────────────────────────────
+# The CREATE TABLE statements above are the baseline schema (version 0) and
+# must never change. Every later schema change is appended to MIGRATIONS as a
+# function taking an open connection; its position + 1 is its version, stored
+# in SQLite's PRAGMA user_version. Never edit or reorder a released migration.
+# See docs/adr/0003-schema-migrations.md.
+
+def _m001_simulated_flag(conn):
+    """Audit C4: mark demo data so it can't be mistaken for real QC records."""
+    from seed import SIMULATOR_NOTES  # lazy: seed imports this module
+
+    conn.execute("ALTER TABLE samples ADD COLUMN is_simulated INTEGER NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE test_results ADD COLUMN is_simulated INTEGER NOT NULL DEFAULT 0")
+
+    # Every FDA-imported sample is demo data (invented lot, assignee, status).
+    n_samples = conn.execute(
+        "UPDATE samples SET is_simulated = 1 WHERE source = 'FDA'").rowcount
+
+    # Only results in the simulator's exact wording; anything logged by hand
+    # against a demo sample stays a real entry.
+    rows = conn.execute("""
+        SELECT t.id, t.notes FROM test_results t
+        JOIN samples s ON s.sample_id = t.sample_id
+        WHERE s.source = 'FDA'
+    """).fetchall()
+    result_ids = [(r["id"],) for r in rows if SIMULATOR_NOTES.match(r["notes"] or "")]
+    conn.executemany("UPDATE test_results SET is_simulated = 1 WHERE id = ?", result_ids)
+
+    if n_samples or result_ids:
+        conn.execute("""
+            INSERT INTO audit_trail (timestamp, user, action, module, target_id, detail)
+            VALUES (?, 'system', 'SCHEMA_MIGRATED', 'Database', 'migration 1', ?)
+        """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+              f"Flagged {n_samples} FDA-imported samples and {len(result_ids)} "
+              f"simulator-generated test results as simulated (audit C4)."))
+
+
+MIGRATIONS = [
+    _m001_simulated_flag,
+]
+
+
+def schema_version(conn) -> int:
+    return conn.execute("PRAGMA user_version").fetchone()[0]
+
+
+def apply_migrations(migrations=None):
+    """
+    Apply pending migrations, each in its own transaction. BEGIN IMMEDIATE
+    takes the write lock before the version is re-read, so two processes
+    starting together can't apply the same migration twice.
+    """
+    migrations = MIGRATIONS if migrations is None else migrations
+    conn = get_conn()
+    try:
+        for version, migrate in enumerate(migrations, start=1):
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                if schema_version(conn) >= version:
+                    conn.rollback()
+                    continue
+                migrate(conn)
+                conn.execute(f"PRAGMA user_version = {int(version)}")
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+    finally:
+        conn.close()
+
 
 # ─────────────────────────────────────────────
 # CACHE HELPERS — called after writes to keep UI in sync
@@ -165,6 +240,7 @@ def _clear_sample_cache():
     count_samples_by_status.clear()
     count_samples_by_priority.clear()
     sample_exists.clear()
+    count_simulated.clear()
 
 
 def _clear_result_cache():
@@ -173,6 +249,14 @@ def _clear_result_cache():
     get_oos_results.clear()
     count_oos_results.clear()
     get_results_for_sample.clear()
+    count_simulated.clear()
+
+
+def clear_data_caches():
+    """For bulk writes that bypass the helpers below (e.g. the FDA import)."""
+    _clear_sample_cache()
+    _clear_result_cache()
+    get_audit_trail.clear()
 
 
 # ─────────────────────────────────────────────
@@ -184,27 +268,76 @@ def hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-def seed_users():
+# Public demo accounts — their passwords are published on the login screen
+# and in the README, so they may only ever exist in demo mode.
+DEMO_USERS = [
+    # (username, password, role)
+    ("admin",  "admin123", "admin"),
+    ("kembly", "lab2024",  "lab_tech"),
+    ("carlos", "lab2024",  "lab_tech"),
+    ("maria",  "lab2024",  "lab_tech"),
+]
+
+MIN_ADMIN_PASSWORD_LENGTH = 12
+
+
+def seed_users(demo: bool, admin_password=None):
     """
-    Insert the default user accounts on first run.
-    INSERT OR IGNORE means running this again won't duplicate anything —
-    totally safe to call on every startup.
+    Create the initial accounts — only when the users table is empty, so
+    accounts that were deleted or changed later are never silently re-created.
+
+    Demo mode seeds DEMO_USERS. Secure mode seeds a single `admin` with the
+    operator-supplied password, and refuses to run on a database that still
+    contains accounts with published demo passwords.
+    Raises config.ConfigError when the app must not start.
     """
+    from config import ConfigError
+
     conn = get_conn()
-    c = conn.cursor()
-    users = [
-        ("admin",    hash_pw("admin123"),   "admin"),
-        ("kembly",   hash_pw("lab2024"),    "lab_tech"),
-        ("carlos",   hash_pw("lab2024"),    "lab_tech"),
-        ("maria",    hash_pw("lab2024"),    "lab_tech"),
-    ]
-    for u in users:
-        c.execute("""
-            INSERT OR IGNORE INTO users (username, password, role)
-            VALUES (?, ?, ?)
-        """, u)
-    conn.commit()
-    conn.close()
+    try:
+        has_users = conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+
+        if not demo:
+            exposed = [
+                username for username, password, _ in DEMO_USERS
+                if conn.execute(
+                    "SELECT 1 FROM users WHERE username = ? AND password = ?",
+                    (username, hash_pw(password)),
+                ).fetchone()
+            ]
+            if exposed:
+                raise ConfigError(
+                    "These accounts still use the published demo passwords: "
+                    f"{', '.join(exposed)}. Use a fresh database for a non-demo "
+                    "deployment, or set LABVAULT_DEMO_MODE=true for a demo."
+                )
+
+        if has_users:
+            return
+
+        if demo:
+            rows = [(u, hash_pw(p), r) for u, p, r in DEMO_USERS]
+        else:
+            if not admin_password:
+                raise ConfigError(
+                    "No users exist yet. Set LABVAULT_ADMIN_PASSWORD to create the "
+                    "initial admin account, or set LABVAULT_DEMO_MODE=true for a demo."
+                )
+            if len(admin_password) < MIN_ADMIN_PASSWORD_LENGTH:
+                raise ConfigError(
+                    f"LABVAULT_ADMIN_PASSWORD must be at least "
+                    f"{MIN_ADMIN_PASSWORD_LENGTH} characters."
+                )
+            rows = [("admin", hash_pw(admin_password), "admin")]
+
+        conn.executemany(
+            "INSERT INTO users (username, password, role) VALUES (?, ?, ?)", rows
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    get_all_users.clear()
+    get_lab_techs.clear()
 
 
 def authenticate(username: str, password: str):
@@ -336,7 +469,8 @@ def get_recent_samples(limit: int = 8):
     """
     conn = get_conn()
     rows = conn.execute(
-        "SELECT sample_id, product_name, manufacturer, status, priority, assigned_to "
+        "SELECT sample_id, product_name, manufacturer, status, priority, assigned_to, "
+        "is_simulated "
         "FROM samples ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
     conn.close()
@@ -411,6 +545,16 @@ def count_samples_by_priority():
 
 
 @st.cache_data(ttl=60)
+def count_simulated():
+    """How much demo data the instance holds — drives the demo-data notice."""
+    conn = get_conn()
+    samples = conn.execute("SELECT COUNT(*) FROM samples WHERE is_simulated = 1").fetchone()[0]
+    results = conn.execute("SELECT COUNT(*) FROM test_results WHERE is_simulated = 1").fetchone()[0]
+    conn.close()
+    return {"samples": samples, "results": results}
+
+
+@st.cache_data(ttl=60)
 def sample_exists():
     """
     Quick boolean check — is there at least one sample in the DB?
@@ -481,7 +625,7 @@ def get_oos_results(limit: int = 10):
     conn = get_conn()
     rows = conn.execute("""
         SELECT sample_id, test_name, result_value, result_unit,
-               spec_min, spec_max, tested_by, tested_at
+               spec_min, spec_max, tested_by, tested_at, is_simulated
         FROM   test_results
         WHERE  status = 'Fail (OOS)'
         ORDER  BY id DESC

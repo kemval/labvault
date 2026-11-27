@@ -5,7 +5,9 @@ Run with: streamlit run app.py
 """
 
 import streamlit as st
-from db import init_db, seed_users, seed_protocols, authenticate, sample_exists
+from config import ConfigError, demo_mode, admin_password
+from db import (init_db, seed_users, seed_protocols, authenticate, sample_exists,
+                count_simulated, DEMO_USERS)
 from seed import seed_from_fda
 
 # ─────────────────────────────────────────────
@@ -97,6 +99,7 @@ st.markdown("""
     .badge-critical   { background:#fce4ec; color:#c62828; }
     .badge-major      { background:#fff3e0; color:#e65100; }
     .badge-minor      { background:#e8f5e9; color:#2e7d32; }
+    .badge-sim        { background:#ede7f6; color:#4527a0; }  /* demo data marker */
 
     /* Login box — centered card that floats in the middle of the page.
        The shadow gives it depth so it doesn't feel flat. */
@@ -151,18 +154,22 @@ st.markdown("""
 # FIRST-RUN SETUP
 # ─────────────────────────────────────────────
 
-# @st.cache_resource is perfect here — it runs once per server session and
-# caches the result forever. No matter how many times the page reloads,
-# init_db() and seeding only happen once. Super efficient.
+# @st.cache_resource runs this once per server process (shared by every
+# session), so init_db() and seeding happen once, not on every rerun.
+# If setup raises, nothing is cached and the next run tries again.
 @st.cache_resource(show_spinner=False)
 def setup():
-    """Initialize DB and seed data exactly once per session."""
+    """Initialize DB and seed data once per server process."""
     init_db()        # creates all tables and indexes if they don't exist yet
-    seed_users()     # adds default admin + lab tech accounts
+    seed_users(demo=demo_mode(), admin_password=admin_password())
     seed_protocols() # loads the standard GxP protocols (Dissolution, Potency, etc.)
     return True
 
-setup()
+try:
+    setup()
+except ConfigError as e:
+    st.error(f"LabVault is not configured correctly: {e}")
+    st.stop()
 
 
 # ─────────────────────────────────────────────
@@ -179,10 +186,10 @@ if "user" not in st.session_state:
     st.session_state.user = None
 if "page" not in st.session_state:
     st.session_state.page = "Dashboard"
-if "fda_seeded" not in st.session_state:
-    # Track whether we already imported FDA data this session,
-    # so we don't trigger the spinner on every rerun.
-    st.session_state.fda_seeded = False
+if "auto_import_attempted" not in st.session_state:
+    # The first-login FDA auto-import runs at most once per session —
+    # success or failure — so a down API can't block every rerun.
+    st.session_state.auto_import_attempted = False
 
 
 # ─────────────────────────────────────────────
@@ -199,7 +206,7 @@ def show_login():
             <div class="login-title">LabVault</div>
             <div class="login-subtitle">
                 Pharmaceutical Lab Management System<br>
-                Powered by real FDA recall data
+                Sample data: real FDA recalls with simulated lab results
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -223,13 +230,16 @@ def show_login():
             else:
                 st.error("Invalid username or password.")
 
-        st.markdown("---")
-        # A small hint for demo purposes — helpful for anyone exploring the app
-        st.markdown(
-            "<small style='color:#999'>Demo accounts — Admin: `admin` / `admin123` &nbsp;|&nbsp; "
-            "Lab Tech: `kembly` / `lab2024`</small>",
-            unsafe_allow_html=True
-        )
+        # Demo credentials are public by design, so they are shown only on
+        # demo instances — never on a secure deployment.
+        if demo_mode():
+            st.markdown("---")
+            admin_user = next(u for u in DEMO_USERS if u[2] == "admin")
+            tech_user  = next(u for u in DEMO_USERS if u[2] == "lab_tech")
+            st.caption(
+                f"Demo instance — Admin: `{admin_user[0]}` / `{admin_user[1]}`  |  "
+                f"Lab Tech: `{tech_user[0]}` / `{tech_user[1]}`"
+            )
 
 
 # ─────────────────────────────────────────────
@@ -280,8 +290,8 @@ def show_sidebar():
                 with st.spinner("Fetching real FDA recall records..."):
                     result = seed_from_fda(limit=100)
                 if result["success"]:
-                    st.success(f"✅ Imported {result['count']} samples")
-                    st.session_state.fda_seeded = True
+                    st.success(f"✅ Imported {result['count']} new samples "
+                               f"({result['already_present']} already present)")
                     st.rerun()
                 else:
                     st.error(f"❌ {result['error']}")
@@ -344,14 +354,30 @@ else:
 
     # On the very first login, if the DB is completely empty, kick off
     # the FDA import automatically so the user sees real data right away
-    # instead of a blank dashboard. The fda_seeded flag prevents this
-    # from running again on every page navigation within the session.
-    if not sample_exists() and not st.session_state.fda_seeded:
+    # instead of a blank dashboard. It is attempted once per session; with
+    # only_if_empty=True, a session that loses the race to another one's
+    # import becomes a no-op instead of importing a second batch.
+    if not st.session_state.auto_import_attempted and not sample_exists():
+        st.session_state.auto_import_attempted = True
         with st.spinner("🔬 First launch — importing real FDA pharmaceutical data..."):
-            result = seed_from_fda(limit=100)
+            result = seed_from_fda(limit=100, only_if_empty=True)
         if result["success"]:
-            st.session_state.fda_seeded = True
             st.success(f"✅ {result['count']} real FDA recall records imported. Welcome to LabVault!")
             st.rerun()
+        else:
+            hint = ("Use **🔄 Import FDA Data** in the sidebar to try again."
+                    if st.session_state.user["role"] == "admin"
+                    else "Ask an administrator to import the data.")
+            st.error(f"Could not import FDA data: {result['error']}. {hint}")
+
+    # Demo data must never be mistaken for real QC records (audit C4).
+    simulated = count_simulated()
+    if simulated["samples"] or simulated["results"]:
+        st.info(
+            f"🧪 **Demo data:** {simulated['samples']} samples and {simulated['results']} "
+            "test results here are **simulated**: real FDA recall records with invented "
+            "lot numbers, assignments and lab results. They are marked **SIMULATED** "
+            "and must not be used as real QC data."
+        )
 
     route()

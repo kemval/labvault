@@ -5,16 +5,41 @@ populates the samples + test_results tables with realistic lab data.
 Run automatically on first launch from app.py.
 """
 
+import re
 import requests
 import random
 import string
 from datetime import datetime, timedelta
-from db import get_conn, insert_sample, insert_test_result, log_action, get_lab_techs
+from db import get_conn, get_lab_techs, clear_data_caches
 
 # The openFDA drug enforcement endpoint — completely free, no API key needed.
 # It returns real recall records filed with the FDA. Pretty incredible that
 # this data is just publicly available.
 FDA_URL = "https://api.fda.gov/drug/enforcement.json"
+
+# Imported samples and their results are demo data: the recall is real, but
+# the lot number, assignment, lab status and every test result are invented.
+# They are stored with is_simulated = 1 and attributed to this pseudo-user,
+# never to a real analyst.
+SIMULATOR_USER = "simulator"
+
+# Every note simulate_test_results() can write. Used to recognise simulated
+# results in databases created before the is_simulated flag existed.
+# Keep in sync with simulate_test_results — tests enforce it.
+SIMULATOR_NOTES = re.compile(
+    r"^(?:"
+    r"Within specification\."
+    r"|Failed USP Apparatus II\. Result [\d.]+% below Q=80% specification\."
+    r"|Superpotency confirmed\. Result [\d.]+% exceeds 110% upper limit\."
+    r"|Subpotency confirmed\. Result [\d.]+% below 90% lower limit\."
+    r"|Microbial contamination detected: \d+ CFU/mL\. Sterility failure\."
+    r"|Visible particulate matter detected: \d+ particles/container\."
+    r"|pH [\d.]+ outside specification range 4\.5–7\.5\."
+    r"|Product potency within spec\. Recall due to labeling deficiency, not product failure\."
+    r"|Label deficiency confirmed\. Missing or incorrect information identified\."
+    r"|Result [\d.]+% below 90% specification\."
+    r")$"
+)
 
 # ─────────────────────────────────────────────
 # MAPPINGS — translate FDA fields to LabVault
@@ -258,7 +283,7 @@ def fake_lot():
 # MAIN SEED FUNCTION
 # ─────────────────────────────────────────────
 
-def seed_from_fda(limit: int = 100) -> dict:
+def seed_from_fda(limit: int = 100, only_if_empty: bool = False) -> dict:
     """
     Fetch real FDA drug recall records and insert them as samples + test results.
 
@@ -270,7 +295,12 @@ def seed_from_fda(limit: int = 100) -> dict:
     is painfully slow. A single executemany() with all rows is orders of magnitude faster.
     We even log the audit entry as a single summary row rather than 100 individual ones.
 
-    Returns a dict with success=True/False, count of records imported, and any error.
+    only_if_empty=True (used by the first-login auto-import) makes the import
+    a no-op if any samples exist by the time we write — checked under the
+    write lock, so two sessions logging in at once import only once.
+
+    Returns a dict with success=True/False, count of samples actually inserted,
+    already_present (records that were already in the DB), skipped, and error.
     """
     # Get the list of lab techs from the DB so we can randomly assign samples.
     # Fall back to hardcoded names just in case the DB is somehow empty.
@@ -293,9 +323,10 @@ def seed_from_fda(limit: int = 100) -> dict:
         return {"success": False, "error": str(e), "count": 0}
 
     # ── Phase 1: parse all records in memory ─────────────────
-    # Build up two lists (samples, results) without touching the DB yet.
-    samples_to_insert = []
-    results_to_insert = []
+    # Build (sample, its simulated results) pairs without touching the DB yet.
+    # Keeping each sample's results attached lets Phase 2 write results only
+    # for samples that are actually new.
+    parsed = []
     skipped = 0  # count records we couldn't parse — usually missing sample_id
 
     for rec in records:
@@ -329,7 +360,7 @@ def seed_from_fda(limit: int = 100) -> dict:
             status      = STATUS_MAP.get(raw_status, "Pending")
             assigned_to = random.choice(techs)  # random assignment for demo realism
 
-            samples_to_insert.append({
+            sample = {
                 "sample_id":         sample_id,
                 "product_name":      product_name,
                 "lot_number":        fake_lot(),
@@ -342,18 +373,19 @@ def seed_from_fda(limit: int = 100) -> dict:
                 "status":            status,
                 "assigned_to":       assigned_to,
                 "protocol_id":       None,  # not auto-assigned — lab tech picks the protocol
-                "notes":             f"Imported from FDA Recall Enterprise System. Original status: {raw_status}.",
+                "notes":             (f"Imported from FDA Recall Enterprise System. Original status: {raw_status}. "
+                                      "SIMULATED: lot number, assignment and test results are not real."),
                 "source":            "FDA",
-            })
+            }
 
             # Simulate test results entirely in Python — no DB hit yet
-            results_to_insert.extend(simulate_test_results(
+            parsed.append((sample, simulate_test_results(
                 sample_id   = sample_id,
                 reason      = reason,
                 sample_type = sample_type,
-                tested_by   = assigned_to,
+                tested_by   = SIMULATOR_USER,
                 base_date   = collection_date,
-            ))
+            )))
 
         except Exception:
             # If any individual record blows up, skip it and keep going —
@@ -361,35 +393,57 @@ def seed_from_fda(limit: int = 100) -> dict:
             skipped += 1
             continue
 
-    if not samples_to_insert:
+    if not parsed:
         # Nothing to insert (maybe all records were malformed) — still a "success"
-        return {"success": True, "count": 0, "skipped": skipped, "error": None}
+        return {"success": True, "count": 0, "already_present": 0,
+                "skipped": skipped, "error": None}
 
-    # ── Phase 2: one bulk transaction — single DB open/close ──
-    # executemany() is dramatically faster than calling execute() in a loop.
-    # All 100 samples + their results go in one atomic transaction.
+    # ── Phase 2: one atomic transaction — single DB open/close ──
+    # BEGIN IMMEDIATE takes SQLite's write lock up front, so the emptiness
+    # check below and the inserts can't interleave with another session's
+    # import (even one in a different process).
     conn = get_conn()
     try:
-        conn.executemany("""
-            INSERT OR IGNORE INTO samples
-                (sample_id, product_name, lot_number, manufacturer, sample_type,
-                 recall_class, priority, reason_for_recall, collection_date,
-                 status, assigned_to, protocol_id, notes, source)
-            VALUES
-                (:sample_id, :product_name, :lot_number, :manufacturer, :sample_type,
-                 :recall_class, :priority, :reason_for_recall, :collection_date,
-                 :status, :assigned_to, :protocol_id, :notes, :source)
-        """, samples_to_insert)
+        conn.execute("BEGIN IMMEDIATE")
 
-        if results_to_insert:
+        if only_if_empty and conn.execute("SELECT 1 FROM samples LIMIT 1").fetchone():
+            # Another session imported while we were fetching — nothing to do.
+            conn.rollback()
+            return {"success": True, "count": 0, "already_present": 0,
+                    "skipped": skipped, "error": None, "not_needed": True}
+
+        # Insert samples one at a time so we know which ones are new.
+        # Records already in the DB (or repeated within this batch) are ignored,
+        # and their simulated results must be dropped too — otherwise every
+        # re-import would attach a second set of results to existing samples.
+        inserted_ids = set()
+        new_results = []
+        for s, results in parsed:
+            cur = conn.execute("""
+                INSERT OR IGNORE INTO samples
+                    (sample_id, product_name, lot_number, manufacturer, sample_type,
+                     recall_class, priority, reason_for_recall, collection_date,
+                     status, assigned_to, protocol_id, notes, source, is_simulated)
+                VALUES
+                    (:sample_id, :product_name, :lot_number, :manufacturer, :sample_type,
+                     :recall_class, :priority, :reason_for_recall, :collection_date,
+                     :status, :assigned_to, :protocol_id, :notes, :source, 1)
+            """, s)
+            if cur.rowcount == 1:
+                inserted_ids.add(s["sample_id"])
+                new_results.extend(results)
+
+        if new_results:
             conn.executemany("""
                 INSERT INTO test_results
                     (sample_id, test_name, result_value, result_unit,
-                     spec_min, spec_max, status, tested_by, tested_at, notes)
+                     spec_min, spec_max, status, tested_by, tested_at, notes, is_simulated)
                 VALUES
                     (:sample_id, :test_name, :result_value, :result_unit,
-                     :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes)
-            """, results_to_insert)
+                     :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes, 1)
+            """, new_results)
+
+        already_present = len(parsed) - len(inserted_ids)
 
         # One summary audit entry instead of one per record — 100 individual
         # entries would flood the audit trail and make it unreadable.
@@ -399,19 +453,27 @@ def seed_from_fda(limit: int = 100) -> dict:
         """, (
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "system", "SAMPLE_IMPORTED", "FDA Seed", "bulk",
-            f"Bulk imported {len(samples_to_insert)} FDA recall records "
-            f"with {len(results_to_insert)} test results ({skipped} skipped)."
+            f"Imported {len(inserted_ids)} new FDA recall records with "
+            f"{len(new_results)} test results ({already_present} already present, "
+            f"{skipped} skipped)."
         ))
 
         conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
     finally:
         # Always close the connection — even if something explodes above
         conn.close()
+        # This bulk write bypasses the db.py helpers, so bust their caches here;
+        # otherwise sessions keep seeing "no samples" for up to 60s.
+        clear_data_caches()
     # ─────────────────────────────────────────────────────────
 
     return {
-        "success": True,
-        "count":   len(samples_to_insert),
-        "skipped": skipped,
-        "error":   None,
+        "success":         True,
+        "count":           len(inserted_ids),
+        "already_present": already_present,
+        "skipped":         skipped,
+        "error":           None,
     }

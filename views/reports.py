@@ -7,6 +7,21 @@ import pandas as pd
 import io
 from datetime import datetime
 from db import get_all_samples, get_results_for_sample, get_all_results, log_action
+from views.ui import simulated_text
+
+
+def _frame(rows, columns):
+    """DataFrame of `columns`, with is_simulated rendered as Yes/No."""
+    df = pd.DataFrame(rows)
+    if "is_simulated" not in df:
+        df["is_simulated"] = 0
+    df["is_simulated"] = df["is_simulated"].map(simulated_text)
+    return df[columns + ["is_simulated"]]
+
+
+def _sim_mark(row):
+    """PDF tables are too narrow for an extra column — mark simulated IDs with *."""
+    return f"{row['sample_id']} *" if row.get("is_simulated") else row["sample_id"]
 
 
 def build_excel(samples, results):
@@ -14,42 +29,53 @@ def build_excel(samples, results):
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         # Sheet 1 — Samples
         if samples:
-            df_samples = pd.DataFrame(samples)[[
+            df_samples = _frame(samples, [
                 "sample_id", "product_name", "manufacturer", "lot_number",
                 "sample_type", "recall_class", "priority", "status",
                 "assigned_to", "collection_date", "reason_for_recall"
-            ]]
+            ])
             df_samples.columns = [
                 "Sample ID", "Product Name", "Manufacturer", "Lot Number",
                 "Sample Type", "Classification", "Priority", "Status",
-                "Assigned To", "Collection Date", "Reason for Recall"
+                "Assigned To", "Collection Date", "Reason for Recall", "Simulated"
             ]
             df_samples.to_excel(writer, sheet_name="Samples", index=False)
 
         # Sheet 2 — Test Results
         if results:
-            df_results = pd.DataFrame(results)[[
+            df_results = _frame(results, [
                 "sample_id", "test_name", "result_value", "result_unit",
                 "spec_min", "spec_max", "status", "tested_by", "tested_at", "notes"
-            ]]
+            ])
             df_results.columns = [
                 "Sample ID", "Test Name", "Result Value", "Unit",
-                "Spec Min", "Spec Max", "Status", "Tested By", "Test Date", "Notes"
+                "Spec Min", "Spec Max", "Status", "Tested By", "Test Date", "Notes",
+                "Simulated"
             ]
             df_results.to_excel(writer, sheet_name="Test Results", index=False)
 
         # Sheet 3 — OOS Only
         oos = [r for r in results if r["status"] == "Fail (OOS)"]
         if oos:
-            df_oos = pd.DataFrame(oos)[[
+            df_oos = _frame(oos, [
                 "sample_id", "test_name", "result_value", "result_unit",
                 "spec_min", "spec_max", "tested_by", "tested_at", "notes"
-            ]]
+            ])
             df_oos.columns = [
                 "Sample ID", "Test Name", "Result", "Unit",
-                "Spec Min", "Spec Max", "Tested By", "Date", "Notes"
+                "Spec Min", "Spec Max", "Tested By", "Date", "Notes", "Simulated"
             ]
             df_oos.to_excel(writer, sheet_name="OOS Results", index=False)
+
+        # openpyxl stores any string starting with "=" as a live formula.
+        # Exported values come from user input and the openFDA API, so force
+        # every such cell back to plain text — content is kept exactly, but
+        # Excel will never evaluate it (formula injection).
+        for ws in writer.book.worksheets:
+            for row in ws.iter_rows():
+                for cell in row:
+                    if cell.data_type == "f":
+                        cell.data_type = "s"
 
     return output.getvalue()
 
@@ -73,6 +99,14 @@ def build_pdf(samples, results):
         f"OOS Results: {len([r for r in results if r['status'] == 'Fail (OOS)'])}",
         styles["Normal"]
     ))
+    sim_samples = sum(1 for s in samples if s.get("is_simulated"))
+    sim_results = sum(1 for r in results if r.get("is_simulated"))
+    if sim_samples or sim_results:
+        story.append(Paragraph(
+            f"<b>Contains simulated demo data:</b> {sim_samples} samples and {sim_results} "
+            "results are simulated (Sample ID marked *) and are not real QC records.",
+            styles["Normal"]
+        ))
     story.append(Spacer(1, 20))
 
     # Sample summary table
@@ -80,7 +114,7 @@ def build_pdf(samples, results):
     sample_data = [["Sample ID", "Product", "Priority", "Status", "Assigned To"]]
     for s in samples[:50]:  # cap at 50 for PDF readability
         sample_data.append([
-            s["sample_id"],
+            _sim_mark(s),
             s["product_name"][:40],
             s["priority"],
             s["status"],
@@ -108,7 +142,7 @@ def build_pdf(samples, results):
         for r in oos[:30]:
             spec = f"{r.get('spec_min','—')} – {r.get('spec_max','—')}"
             oos_data.append([
-                r["sample_id"], r["test_name"],
+                _sim_mark(r), r["test_name"],
                 str(r["result_value"]), r["result_unit"],
                 spec, r["tested_by"]
             ])

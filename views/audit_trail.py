@@ -30,7 +30,8 @@ def show():
     with col2:
         action_filter = st.selectbox("Filter by Action", [
             "All", "SAMPLE_IMPORTED", "SAMPLE_CREATED", "STATUS_UPDATED",
-            "SAMPLE_ASSIGNED", "RESULT_LOGGED", "PROTOCOL_CREATED", "REPORT_EXPORTED"
+            "SAMPLE_ASSIGNED", "RESULT_LOGGED", "PROTOCOL_CREATED", "REPORT_EXPORTED",
+            "SCHEMA_MIGRATED", "RESULTS_DEDUPLICATED"
         ])
 
     # Grab the 500 most recent log entries — enough to be comprehensive without

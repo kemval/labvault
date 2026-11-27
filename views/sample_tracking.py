@@ -5,6 +5,7 @@ pages/sample_tracking.py — View, filter, and update sample status
 import streamlit as st
 import pandas as pd
 from db import get_all_samples, update_sample_status, update_sample_assignment, get_lab_techs, log_action
+from views.ui import esc, SIMULATED_LABEL
 
 
 STATUS_OPTIONS = ["Pending", "In Progress", "Completed", "Rejected"]
@@ -56,25 +57,30 @@ def show():
         border_color = priority_colors.get(s["priority"], "#1a4a8a")
 
         with st.expander(
-            f"🔬 {s['sample_id']}  ·  {s['product_name'][:60]}  ·  [{s['status']}]",
+            f"🔬 {s['sample_id']}  ·  {s['product_name'][:60]}  ·  [{s['status']}]"
+            + (f"  ·  {SIMULATED_LABEL}" if s.get("is_simulated") else ""),
             expanded=False
         ):
             col_info, col_actions = st.columns([2, 1])
 
             with col_info:
+                sim_line = ("<b>Data:</b> <span class='badge badge-sim'>SIMULATED</span> "
+                            "FDA recall demo — lot, assignment and results are not real<br>"
+                            if s.get("is_simulated") else "")
                 st.markdown(f"""
                     <div style="background:#f8f9ff;border-radius:8px;padding:14px;
                                 border-left:4px solid {border_color}">
-                        <b>Product:</b> {s['product_name']}<br>
-                        <b>Manufacturer:</b> {s['manufacturer']}<br>
-                        <b>Lot Number:</b> {s.get('lot_number', 'N/A')}<br>
-                        <b>Sample Type:</b> {s['sample_type']}<br>
-                        <b>Classification:</b> {s['recall_class']}<br>
-                        <b>Priority:</b> {s['priority']}<br>
-                        <b>Collection Date:</b> {s['collection_date']}<br>
-                        <b>Assigned To:</b> {s['assigned_to']}<br>
-                        <b>Source:</b> {s.get('source', 'FDA')}<br>
-                        <b>Reason:</b> {s.get('reason_for_recall','N/A')[:200]}<br>
+                        <b>Product:</b> {esc(s['product_name'])}<br>
+                        <b>Manufacturer:</b> {esc(s['manufacturer'])}<br>
+                        <b>Lot Number:</b> {esc(s.get('lot_number') or 'N/A')}<br>
+                        <b>Sample Type:</b> {esc(s['sample_type'])}<br>
+                        <b>Classification:</b> {esc(s['recall_class'])}<br>
+                        <b>Priority:</b> {esc(s['priority'])}<br>
+                        <b>Collection Date:</b> {esc(s['collection_date'])}<br>
+                        <b>Assigned To:</b> {esc(s['assigned_to'])}<br>
+                        <b>Source:</b> {esc(s.get('source') or 'FDA')}<br>
+                        <b>Reason:</b> {esc((s.get('reason_for_recall') or 'N/A')[:200])}<br>
+                        {sim_line}
                     </div>
                 """, unsafe_allow_html=True)
 
