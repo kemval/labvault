@@ -18,8 +18,9 @@ def tracking(fresh_db, settings):
     return at, sample_id
 
 
-def save(at, sample_id, status):
+def save(at, sample_id, status, reason="Analysis started"):
     at.selectbox(key=f"status_{sample_id}").set_value(status)
+    at.text_input(key=f"reason_{sample_id}").set_value(reason)
     at.button(key=f"save_{sample_id}").click().run()
     assert not at.exception, at.exception
     return at
@@ -36,7 +37,7 @@ def test_save_updates_sample_and_audit(tracking):
 def test_concurrent_edit_is_rejected_and_other_users_change_kept(tracking):
     at, sample_id = tracking
     # Someone else saves after this page was rendered (e.g. in another process).
-    services.update_sample(sample_id, 1, "carlos", status="Rejected")
+    services.update_sample(sample_id, 1, "carlos", status="Rejected", reason="test")
     db.get_all_samples.clear()
 
     at = save(at, sample_id, "Completed")
@@ -49,7 +50,7 @@ def test_concurrent_edit_is_rejected_and_other_users_change_kept(tracking):
 
 def test_reload_adopts_current_values_then_saves(tracking):
     at, sample_id = tracking
-    services.update_sample(sample_id, 1, "carlos", status="Rejected")
+    services.update_sample(sample_id, 1, "carlos", status="Rejected", reason="test")
     db.get_all_samples.clear()
     at.run()
 

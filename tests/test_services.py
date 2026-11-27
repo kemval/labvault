@@ -69,7 +69,7 @@ def sample_id(lab_db):
 
 
 def test_update_changes_both_fields_atomically_with_old_and_new_values(sample_id):
-    assert services.update_sample(sample_id, 1, "admin", status="In Progress", assigned_to="maria")
+    assert services.update_sample(sample_id, 1, "admin", status="In Progress", assigned_to="maria", reason="test")
 
     [s] = rows("SELECT * FROM samples")
     assert (s["status"], s["assigned_to"], s["version"]) == ("In Progress", "maria", 2)
@@ -79,16 +79,16 @@ def test_update_changes_both_fields_atomically_with_old_and_new_values(sample_id
 
 def test_update_rolls_back_when_audit_fails(sample_id, failing_audit):
     with pytest.raises(RuntimeError):
-        services.update_sample(sample_id, 1, "admin", status="Completed")
+        services.update_sample(sample_id, 1, "admin", status="Completed", reason="test")
     [s] = rows("SELECT * FROM samples")
     assert (s["status"], s["version"]) == ("Pending", 1)
 
 
 def test_stale_update_is_rejected_and_first_writer_wins(sample_id):
-    services.update_sample(sample_id, 1, "kembly", status="In Progress")
+    services.update_sample(sample_id, 1, "kembly", status="In Progress", reason="test")
 
     with pytest.raises(services.ConcurrentUpdateError, match="changed by someone else"):
-        services.update_sample(sample_id, 1, "carlos", status="Rejected")
+        services.update_sample(sample_id, 1, "carlos", status="Rejected", reason="test")
 
     [s] = rows("SELECT * FROM samples")
     assert (s["status"], s["version"]) == ("In Progress", 2)
@@ -103,21 +103,21 @@ def test_rejected_update_clears_stale_cache(sample_id):
     conn.close()
 
     with pytest.raises(services.ConcurrentUpdateError):
-        services.update_sample(sample_id, 1, "admin", status="Rejected")
+        services.update_sample(sample_id, 1, "admin", status="Rejected", reason="test")
     assert db.get_all_samples()[0]["version"] == 2           # reload sees the truth
 
 
 def test_noop_update_writes_nothing(sample_id):
     before = len(audit())
     assert services.update_sample(sample_id, 1, "admin",
-                                  status="Pending", assigned_to="kembly") is False
+                                  status="Pending", assigned_to="kembly", reason="test") is False
     assert rows("SELECT version FROM samples") == [{"version": 1}]
     assert len(audit()) == before
 
 
 def test_update_of_missing_sample(lab_db):
     with pytest.raises(services.NotFoundError):
-        services.update_sample("NOPE", 1, "admin", status="Completed")
+        services.update_sample("NOPE", 1, "admin", status="Completed", reason="test")
 
 
 # ── record_result / create_protocol ────────────────────────────────────────

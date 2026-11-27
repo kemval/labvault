@@ -1,78 +1,69 @@
 """
-pages/audit_trail.py — Full immutable action log
-Every write in LabVault gets recorded here — that's what makes it GxP-compliant.
-Filters let you zero in on a specific user or action type.
+pages/audit_trail.py — the full audit trail, filtered and paged in SQL.
+
+The trail is append-only: database triggers reject any UPDATE or DELETE
+(migration 4, ADR 0008). Changes to a field record the old value, the new
+value and the user's reason. Timestamps are UTC (entries written before
+migration 4 kept the server's local time, as originally recorded).
 """
 
-import streamlit as st
+import math
+
 import pandas as pd
-from db import get_audit_trail
+import streamlit as st
+
+from db import get_audit_actions, get_audit_page
+
+PAGE_SIZE = 100
+
+ACTION_COLORS = {
+    "STATUS_UPDATED":  "background-color:#1a3a5c; color:#90caf9",   # blue — routine update
+    "SAMPLE_ASSIGNED": "background-color:#1a3a5c; color:#90caf9",
+    "RESULT_LOGGED":   "background-color:#3c1a5c; color:#ce93d8",   # purple — test result
+    "SAMPLE_CREATED":  "background-color:#1a3c2a; color:#a5d6a7",   # green — new data
+    "SAMPLE_IMPORTED": "background-color:#1a3c2a; color:#a5d6a7",
+    "REPORT_EXPORTED": "background-color:#3c3a1a; color:#fff176",   # yellow — data leaving
+    "LOGIN_FAILED":    "background-color:#5c1a1a; color:#ef9a9a",   # red — security
+}
 
 
 def show():
-    # "Immutable" is the key word here — in a real GxP environment you'd actually
-    # need a write-protected log. For this system, the DB isn't directly editable
-    # by end users, which is close enough for a demo.
     st.markdown("""
         <div class="lv-header">
             <div><h1>🕵️ Audit Trail</h1>
-            <span>Immutable log of every action taken in LabVault — GxP compliant</span></div>
+            <span>Append-only record of every change, export and sign-in</span></div>
         </div>
     """, unsafe_allow_html=True)
 
-    # ── FILTERS ──────────────────────────────────────────────
-    # Text filter for username and a dropdown for action type.
-    # We filter in Python after fetching because the dataset is small enough
-    # (500 rows max) that a SQL WHERE clause wouldn't make a measurable difference.
     col1, col2 = st.columns(2)
     with col1:
-        user_filter = st.text_input("Filter by User", placeholder="e.g. kembly")
+        user_filter = st.text_input("Filter by User", placeholder="e.g. kembly").strip()
     with col2:
-        action_filter = st.selectbox("Filter by Action", [
-            "All", "SAMPLE_IMPORTED", "SAMPLE_CREATED", "STATUS_UPDATED",
-            "SAMPLE_ASSIGNED", "RESULT_LOGGED", "PROTOCOL_CREATED", "REPORT_EXPORTED",
-            "SCHEMA_MIGRATED", "RESULTS_DEDUPLICATED"
-        ])
+        action_filter = st.selectbox("Filter by Action", ["All"] + get_audit_actions())
+    action = "" if action_filter == "All" else action_filter
 
-    # Grab the 500 most recent log entries — enough to be comprehensive without
-    # loading everything ever written to the DB
-    records = get_audit_trail(limit=500)
-
-    # Apply filters — case-insensitive substring match for user, exact match for action
-    if user_filter:
-        records = [r for r in records if user_filter.lower() in r["user"].lower()]
-    if action_filter != "All":
-        records = [r for r in records if r["action"] == action_filter]
-
-    st.markdown(f"**{len(records)} log entries**")
-    st.markdown("---")
-
-    if not records:
+    _, total = get_audit_page(user_filter, action, limit=1, offset=0)
+    st.markdown(f"**{total} log entries**")
+    if not total:
+        st.markdown("---")
         st.info("No audit entries found.")
         return
 
-    # Build the DataFrame with only the columns we want to show
+    pages = math.ceil(total / PAGE_SIZE)
+    page = 1
+    if pages > 1:
+        page = st.number_input(f"Page (of {pages}, newest first)", min_value=1,
+                               max_value=pages, value=1, step=1, key="audit_page")
+    records, _ = get_audit_page(user_filter, action, limit=PAGE_SIZE,
+                                offset=(page - 1) * PAGE_SIZE)
+    st.markdown("---")
+
     df = pd.DataFrame(records)[[
-        "timestamp", "user", "action", "module", "target_id", "detail"
+        "timestamp", "user", "action", "module", "target_id",
+        "old_value", "new_value", "reason", "detail",
     ]]
-    df.columns = ["Timestamp", "User", "Action", "Module", "Target", "Detail"]
+    df.columns = ["Timestamp", "User", "Action", "Module", "Target",
+                  "Old Value", "New Value", "Reason", "Detail"]
 
-    def color_action(val):
-        """
-        Apply background+text color to Action cells based on the action type.
-        Dark backgrounds with light text — the colors are muted on purpose so
-        the table doesn't look like a Christmas tree, but still scannable at a glance.
-        """
-        colors = {
-            "STATUS_UPDATED":   "background-color:#1a3a5c; color:#90caf9",   # blue — routine update
-            "RESULT_LOGGED":    "background-color:#3c1a5c; color:#ce93d8",   # purple — test result
-            "SAMPLE_CREATED":   "background-color:#1a3c2a; color:#a5d6a7",   # green — new sample
-            "SAMPLE_IMPORTED":  "background-color:#1a3c2a; color:#a5d6a7",   # green — bulk import
-            "REPORT_EXPORTED":  "background-color:#3c3a1a; color:#fff176",   # yellow — export action
-        }
-        return colors.get(val, "")  # no style for unlisted action types
-
-    # Apply cell-level styling on just the Action column.
-    # .map() applies the function to each cell individually (not the whole row).
-    styled = df.style.map(color_action, subset=["Action"])
+    styled = df.style.map(lambda v: ACTION_COLORS.get(v, ""), subset=["Action"])
     st.dataframe(styled, use_container_width=True, hide_index=True, height=600)

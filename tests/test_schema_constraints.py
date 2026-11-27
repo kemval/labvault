@@ -132,7 +132,7 @@ def test_register_sample_reports_invalid_values_instead_of_retrying(lab_db):
 def test_new_rows_get_utc_timestamps_and_updates_bump_updated_at(lab_db):
     sample_id = services.register_sample(BASE, "admin")
     execute("UPDATE samples SET updated_at = '2000-01-01T00:00:00Z'")
-    services.update_sample(sample_id, 1, "admin", status="In Progress")
+    services.update_sample(sample_id, 1, "admin", status="In Progress", reason="test")
     [s] = rows("SELECT created_at, updated_at FROM samples")
     assert s["created_at"].endswith("Z") and len(s["created_at"]) == 20
     assert s["updated_at"] > "2000-01-01T00:00:00Z"
@@ -179,7 +179,7 @@ def test_migration_keeps_every_row_and_leaves_old_timestamps_empty(v2_db):
     assert [r[:-2] for r in after["samples"]] == before["samples"]
     assert {r[-2:] for r in after["samples"]} == {(None, None)}
     assert [r[:-1] for r in after["test_results"]] == before["test_results"]
-    assert after["audit_trail"] == before["audit_trail"]
+    assert [r[:7] for r in after["audit_trail"]] == before["audit_trail"]   # + 3 new columns
     assert after["users"][:len(before["users"])] == before["users"]
     assert {r[1] for r in after["users"][len(before["users"]):]} == {"system", "simulator"}
     assert rows("PRAGMA foreign_key_check") == []
