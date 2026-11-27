@@ -6,9 +6,11 @@ Run with: streamlit run app.py
 
 import streamlit as st
 from config import ConfigError, demo_mode, admin_password
-from db import (init_db, seed_users, seed_protocols, authenticate, sample_exists,
-                count_simulated, DEMO_USERS)
-from seed import seed_from_fda
+from db import sample_exists, count_simulated, clear_user_caches
+from repo.protocols import seed_protocols
+from repo.schema import init_db
+from repo.users import DEMO_USERS, authenticate, seed_users
+import services
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG — must be first Streamlit call
@@ -163,6 +165,7 @@ def setup():
     init_db()        # creates all tables and indexes if they don't exist yet
     seed_users(demo=demo_mode(), admin_password=admin_password())
     seed_protocols() # loads the standard GxP protocols (Dissolution, Potency, etc.)
+    clear_user_caches()
     return True
 
 try:
@@ -288,7 +291,7 @@ def show_sidebar():
                 st.warning("No samples yet. Import FDA data.")
             if st.button("🔄 Import FDA Data", use_container_width=True):
                 with st.spinner("Fetching real FDA recall records..."):
-                    result = seed_from_fda(limit=100)
+                    result = services.import_fda(limit=100)
                 if result["success"]:
                     st.success(f"✅ Imported {result['count']} new samples "
                                f"({result['already_present']} already present)")
@@ -360,7 +363,7 @@ else:
     if not st.session_state.auto_import_attempted and not sample_exists():
         st.session_state.auto_import_attempted = True
         with st.spinner("🔬 First launch — importing real FDA pharmaceutical data..."):
-            result = seed_from_fda(limit=100, only_if_empty=True)
+            result = services.import_fda(limit=100, only_if_empty=True)
         if result["success"]:
             st.success(f"✅ {result['count']} real FDA recall records imported. Welcome to LabVault!")
             st.rerun()

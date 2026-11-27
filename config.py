@@ -13,8 +13,6 @@ Community Cloud). See docs/adr/0001-deployment-modes.md.
 
 import os
 
-import streamlit as st
-
 
 class ConfigError(RuntimeError):
     """The deployment is misconfigured; the app must not start."""
@@ -25,6 +23,9 @@ def _setting(name: str):
     if value is not None:
         return value
     try:
+        # Imported here so config (and repo/, which raises ConfigError) can be
+        # used without Streamlit installed or running.
+        import streamlit as st
         value = st.secrets.get(name)
     except Exception:
         # No secrets file configured — st.secrets raises rather than returning None.

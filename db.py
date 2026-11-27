@@ -1,836 +1,132 @@
 """
-db.py — LabVault database layer
-Creates all tables and provides helper functions for every module.
-Database: SQLite (labvault.db, created automatically on first run)
-"""
+db.py — cached reads for the Streamlit views (ADR 0006).
 
-import sqlite3
-import hashlib
-from datetime import datetime
-from contextlib import contextmanager
+The only module besides the views and app.py that imports Streamlit. It wraps
+the Streamlit-free repo/ queries in st.cache_data and owns cache
+invalidation. Writes never happen here: views call services.py, which writes
+through repo/ and then calls the clear_* functions below.
+
+Caches are process-wide (shared by all sessions), so every write must clear
+the caches it affects.
+"""
 
 import streamlit as st
 
-# The database lives right next to the app — SQLite just needs a file path.
-# On Streamlit Cloud this path is relative to the working directory.
-DB_PATH = "labvault.db"
+from repo import audit, protocols, results, samples, users
 
 
 # ─────────────────────────────────────────────
-# CONNECTION
+# USERS
 # ─────────────────────────────────────────────
-
-def get_conn():
-    """
-    Open a fresh connection to the SQLite database with a couple of
-    performance and correctness tweaks applied right away.
-    """
-    conn = sqlite3.connect(DB_PATH)
-
-    # row_factory turns each row into something that behaves like a dict,
-    # so we can do row["column_name"] instead of row[0]. Much more readable.
-    conn.row_factory = sqlite3.Row
-
-    # Foreign key enforcement is OFF by default in SQLite — we have to turn
-    # it on manually per connection. A bit surprising, but that's SQLite for you.
-    conn.execute("PRAGMA foreign_keys = ON")
-
-    # WAL (Write-Ahead Logging) mode lets reads happen at the same time as writes,
-    # which is huge for a multi-user app where the dashboard and a form submission
-    # might hit the DB simultaneously.
-    conn.execute("PRAGMA journal_mode = WAL")
-
-    return conn
-
-
-@contextmanager
-def transaction():
-    """
-    One connection, one write transaction: commit on success, roll back on
-    any exception. BEGIN IMMEDIATE takes the write lock up front so reads
-    made inside the block (e.g. a version check) can't go stale before the
-    write. Use this for every multi-statement change, including its audit row.
-    """
-    conn = get_conn()
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        yield conn
-        conn.commit()
-    except BaseException:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-def _run(conn, fn):
-    """Run fn(conn) inside the caller's transaction, or in a new one."""
-    if conn is not None:
-        return fn(conn)
-    with transaction() as own:
-        return fn(own)
-
-
-# ─────────────────────────────────────────────
-# SCHEMA — create all tables + performance indexes
-# ─────────────────────────────────────────────
-
-def init_db():
-    """
-    Create all tables if they don't already exist, then add indexes
-    on the columns we filter and sort by most often.
-    Safe to call on every startup — CREATE IF NOT EXISTS is idempotent.
-    """
-    conn = get_conn()
-    c = conn.cursor()
-
-    # USERS — just enough to authenticate and show role-based UI
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            username    TEXT UNIQUE NOT NULL,
-            password    TEXT NOT NULL,          -- SHA-256 hex (never store plaintext!)
-            role        TEXT NOT NULL           -- 'admin' | 'lab_tech'
-        )
-    """)
-
-    # PROTOCOLS — the standard test procedures a sample can be assigned to.
-    # Steps are stored as a single newline-separated string because they're
-    # always read together and never queried individually.
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS protocols (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            name            TEXT NOT NULL,
-            sample_type     TEXT NOT NULL,
-            description     TEXT,
-            steps           TEXT,               -- newline-separated steps
-            created_by      TEXT,
-            created_at      TEXT
-        )
-    """)
-
-    # SAMPLES — the heart of the system. One row per FDA recall record (or
-    # manually registered sample). All downstream test results reference this table.
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS samples (
-            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-            sample_id           TEXT UNIQUE NOT NULL,   -- e.g. D-0318-2024
-            product_name        TEXT NOT NULL,
-            lot_number          TEXT,
-            manufacturer        TEXT,
-            sample_type         TEXT,                   -- e.g. Tablet, Capsule
-            recall_class        TEXT,                   -- Class I / II / III
-            priority            TEXT,                   -- Critical / Major / Minor
-            reason_for_recall   TEXT,
-            collection_date     TEXT,
-            status              TEXT DEFAULT 'Pending', -- Pending/In Progress/Completed/Rejected
-            assigned_to         TEXT,                   -- username of the responsible tech
-            protocol_id         INTEGER,
-            notes               TEXT,
-            source              TEXT DEFAULT 'FDA',     -- FDA | Manual
-            FOREIGN KEY (protocol_id) REFERENCES protocols(id)
-        )
-    """)
-
-    # TEST RESULTS — one or more results per sample; each test is recorded
-    # individually so we can flag specific failures (OOS = Out Of Spec).
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS test_results (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            sample_id       TEXT NOT NULL,
-            test_name       TEXT NOT NULL,      -- e.g. Dissolution, Potency
-            result_value    REAL,
-            result_unit     TEXT,               -- e.g. %, CFU/mL, pH
-            spec_min        REAL,
-            spec_max        REAL,
-            status          TEXT,               -- Pass | Fail (OOS)
-            tested_by       TEXT,
-            tested_at       TEXT,
-            notes           TEXT,
-            FOREIGN KEY (sample_id) REFERENCES samples(sample_id)
-        )
-    """)
-
-    # AUDIT TRAIL — every write action in the system gets a row here.
-    # This is what makes LabVault GxP-compliant: nothing gets silently changed.
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS audit_trail (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp   TEXT NOT NULL,
-            user        TEXT NOT NULL,
-            action      TEXT NOT NULL,          -- e.g. SAMPLE_CREATED
-            module      TEXT NOT NULL,          -- e.g. Sample Intake
-            target_id   TEXT,                   -- sample_id or protocol id
-            detail      TEXT                    -- human-readable description
-        )
-    """)
-
-    # ── PERFORMANCE INDEXES ──────────────────────────────────
-    # Without these, every filter and status lookup would do a full table scan.
-    # With 100+ samples they're already noticeably faster — at 10,000+ they're essential.
-    c.execute("CREATE INDEX IF NOT EXISTS idx_samples_status   ON samples(status)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_samples_priority ON samples(priority)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_samples_id       ON samples(sample_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_results_sample   ON test_results(sample_id)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_results_status   ON test_results(status)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_audit_timestamp  ON audit_trail(timestamp)")
-    # ────────────────────────────────────────────────────────
-
-    conn.commit()
-    conn.close()
-
-    apply_migrations()
-
-
-# ─────────────────────────────────────────────
-# SCHEMA MIGRATIONS
-# ─────────────────────────────────────────────
-# The CREATE TABLE statements above are the baseline schema (version 0) and
-# must never change. Every later schema change is appended to MIGRATIONS as a
-# function taking an open connection; its position + 1 is its version, stored
-# in SQLite's PRAGMA user_version. Never edit or reorder a released migration.
-# See docs/adr/0003-schema-migrations.md.
-
-def _m001_simulated_flag(conn):
-    """Audit C4: mark demo data so it can't be mistaken for real QC records."""
-    from seed import SIMULATOR_NOTES  # lazy: seed imports this module
-
-    conn.execute("ALTER TABLE samples ADD COLUMN is_simulated INTEGER NOT NULL DEFAULT 0")
-    conn.execute("ALTER TABLE test_results ADD COLUMN is_simulated INTEGER NOT NULL DEFAULT 0")
-
-    # Every FDA-imported sample is demo data (invented lot, assignee, status).
-    n_samples = conn.execute(
-        "UPDATE samples SET is_simulated = 1 WHERE source = 'FDA'").rowcount
-
-    # Only results in the simulator's exact wording; anything logged by hand
-    # against a demo sample stays a real entry.
-    rows = conn.execute("""
-        SELECT t.id, t.notes FROM test_results t
-        JOIN samples s ON s.sample_id = t.sample_id
-        WHERE s.source = 'FDA'
-    """).fetchall()
-    result_ids = [(r["id"],) for r in rows if SIMULATOR_NOTES.match(r["notes"] or "")]
-    conn.executemany("UPDATE test_results SET is_simulated = 1 WHERE id = ?", result_ids)
-
-    if n_samples or result_ids:
-        conn.execute("""
-            INSERT INTO audit_trail (timestamp, user, action, module, target_id, detail)
-            VALUES (?, 'system', 'SCHEMA_MIGRATED', 'Database', 'migration 1', ?)
-        """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-              f"Flagged {n_samples} FDA-imported samples and {len(result_ids)} "
-              f"simulator-generated test results as simulated (audit C4)."))
-
-
-def _m002_sample_version(conn):
-    """Audit H8: row version for optimistic concurrency on sample updates."""
-    conn.execute("ALTER TABLE samples ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
-
-
-MIGRATIONS = [
-    _m001_simulated_flag,
-    _m002_sample_version,
-]
-
-
-def schema_version(conn) -> int:
-    return conn.execute("PRAGMA user_version").fetchone()[0]
-
-
-def apply_migrations(migrations=None):
-    """
-    Apply pending migrations, each in its own transaction. BEGIN IMMEDIATE
-    takes the write lock before the version is re-read, so two processes
-    starting together can't apply the same migration twice.
-    """
-    migrations = MIGRATIONS if migrations is None else migrations
-    conn = get_conn()
-    try:
-        for version, migrate in enumerate(migrations, start=1):
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                if schema_version(conn) >= version:
-                    conn.rollback()
-                    continue
-                migrate(conn)
-                conn.execute(f"PRAGMA user_version = {int(version)}")
-                conn.commit()
-            except BaseException:
-                conn.rollback()
-                raise
-    finally:
-        conn.close()
-
-
-# ─────────────────────────────────────────────
-# CACHE HELPERS — called after writes to keep UI in sync
-# ─────────────────────────────────────────────
-
-def _clear_sample_cache():
-    """
-    After any write to the samples table, we need to bust all the
-    related caches so the UI shows fresh data on the next render.
-    Streamlit's @st.cache_data caches are per-function, so we clear them individually.
-    """
-    get_all_samples.clear()
-    get_recent_samples.clear()
-    count_samples_by_status.clear()
-    count_samples_by_priority.clear()
-    sample_exists.clear()
-    count_simulated.clear()
-
-
-def _clear_result_cache():
-    """Same idea for test result caches — any new result clears all of these."""
-    get_all_results.clear()
-    get_oos_results.clear()
-    count_oos_results.clear()
-    get_results_for_sample.clear()
-    count_simulated.clear()
-
-
-def clear_data_caches():
-    """For bulk writes that bypass the helpers below (e.g. the FDA import)."""
-    _clear_sample_cache()
-    _clear_result_cache()
-    get_audit_trail.clear()
-
-
-# ─────────────────────────────────────────────
-# AUTH HELPERS
-# ─────────────────────────────────────────────
-
-def hash_pw(password: str) -> str:
-    """SHA-256 hash a password. Simple, fast, and one-way — passwords never stored raw."""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-
-# Public demo accounts — their passwords are published on the login screen
-# and in the README, so they may only ever exist in demo mode.
-DEMO_USERS = [
-    # (username, password, role)
-    ("admin",  "admin123", "admin"),
-    ("kembly", "lab2024",  "lab_tech"),
-    ("carlos", "lab2024",  "lab_tech"),
-    ("maria",  "lab2024",  "lab_tech"),
-]
-
-MIN_ADMIN_PASSWORD_LENGTH = 12
-
-
-def seed_users(demo: bool, admin_password=None):
-    """
-    Create the initial accounts — only when the users table is empty, so
-    accounts that were deleted or changed later are never silently re-created.
-
-    Demo mode seeds DEMO_USERS. Secure mode seeds a single `admin` with the
-    operator-supplied password, and refuses to run on a database that still
-    contains accounts with published demo passwords.
-    Raises config.ConfigError when the app must not start.
-    """
-    from config import ConfigError
-
-    conn = get_conn()
-    try:
-        has_users = conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
-
-        if not demo:
-            exposed = [
-                username for username, password, _ in DEMO_USERS
-                if conn.execute(
-                    "SELECT 1 FROM users WHERE username = ? AND password = ?",
-                    (username, hash_pw(password)),
-                ).fetchone()
-            ]
-            if exposed:
-                raise ConfigError(
-                    "These accounts still use the published demo passwords: "
-                    f"{', '.join(exposed)}. Use a fresh database for a non-demo "
-                    "deployment, or set LABVAULT_DEMO_MODE=true for a demo."
-                )
-
-        if has_users:
-            return
-
-        if demo:
-            rows = [(u, hash_pw(p), r) for u, p, r in DEMO_USERS]
-        else:
-            if not admin_password:
-                raise ConfigError(
-                    "No users exist yet. Set LABVAULT_ADMIN_PASSWORD to create the "
-                    "initial admin account, or set LABVAULT_DEMO_MODE=true for a demo."
-                )
-            if len(admin_password) < MIN_ADMIN_PASSWORD_LENGTH:
-                raise ConfigError(
-                    f"LABVAULT_ADMIN_PASSWORD must be at least "
-                    f"{MIN_ADMIN_PASSWORD_LENGTH} characters."
-                )
-            rows = [("admin", hash_pw(admin_password), "admin")]
-
-        conn.executemany(
-            "INSERT INTO users (username, password, role) VALUES (?, ?, ?)", rows
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    get_all_users.clear()
-    get_lab_techs.clear()
-
-
-def authenticate(username: str, password: str):
-    """
-    Look up a user by username + hashed password.
-    Returns the full user row as a dict, or None if credentials don't match.
-    We hash the input before querying so the DB never sees a plaintext password.
-    """
-    conn = get_conn()
-    c = conn.cursor()
-    row = c.execute("""
-        SELECT * FROM users WHERE username = ? AND password = ?
-    """, (username, hash_pw(password))).fetchone()
-    conn.close()
-    return dict(row) if row else None
-
 
 @st.cache_data(ttl=300)
 def get_all_users():
-    """Fetch all users — just username and role, no password hashes leaving the DB."""
-    conn = get_conn()
-    rows = conn.execute("SELECT username, role FROM users").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    """Usernames and roles only — no password hashes leave the database."""
+    return users.all_users()
 
 
 @st.cache_data(ttl=300)
 def get_lab_techs():
-    """
-    Return a list of lab tech usernames — used to populate assignment dropdowns.
-    Cached for 5 minutes since user accounts rarely change mid-session.
-    """
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT username FROM users WHERE role = 'lab_tech'"
-    ).fetchall()
-    conn.close()
-    return [r["username"] for r in rows]
+    """Lab tech usernames, for assignment dropdowns."""
+    return users.lab_techs()
 
 
 # ─────────────────────────────────────────────
 # AUDIT TRAIL
 # ─────────────────────────────────────────────
 
-def write_audit(conn, user: str, action: str, module: str,
-                target_id: str = "", detail: str = ""):
-    """
-    Insert one audit row on `conn` without committing, so it lands in the
-    same transaction as the change it describes. services.py uses this for
-    every data change; the caller clears caches after commit.
-    """
-    conn.execute("""
-        INSERT INTO audit_trail (timestamp, user, action, module, target_id, detail)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user, action, module, target_id, detail))
-
-
-def log_action(user: str, action: str, module: str, target_id: str = "", detail: str = ""):
-    """
-    Record an event that changes no data (e.g. a report export) as its own
-    transaction. Data changes must go through services.py instead, so the
-    change and its audit row commit together.
-    """
-    with transaction() as conn:
-        write_audit(conn, user, action, module, target_id, detail)
-    get_audit_trail.clear()
-
-
 @st.cache_data(ttl=30)
 def get_audit_trail(limit: int = 200):
-    """
-    Fetch the most recent audit entries, newest first.
-    Short TTL of 30s — audit logs should feel close to real-time.
-    """
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT * FROM audit_trail ORDER BY id DESC LIMIT ?
-    """, (limit,)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    """Most recent audit entries, newest first. Short TTL: should feel live."""
+    return audit.recent_audit(limit)
 
 
 # ─────────────────────────────────────────────
 # SAMPLES
 # ─────────────────────────────────────────────
 
-def insert_sample(data: dict, conn=None) -> bool:
-    """
-    Insert a sample row; returns False if the sample_id already exists
-    (INSERT OR IGNORE). Pass `conn` to join the caller's transaction — the
-    caller then clears caches after commit. App code should use
-    services.register_sample, which also writes the audit row.
-    """
-    def run(c):
-        return c.execute("""
-            INSERT OR IGNORE INTO samples
-                (sample_id, product_name, lot_number, manufacturer, sample_type,
-                 recall_class, priority, reason_for_recall, collection_date,
-                 status, assigned_to, protocol_id, notes, source)
-            VALUES
-                (:sample_id, :product_name, :lot_number, :manufacturer, :sample_type,
-                 :recall_class, :priority, :reason_for_recall, :collection_date,
-                 :status, :assigned_to, :protocol_id, :notes, :source)
-        """, data).rowcount == 1
-
-    inserted = _run(conn, run)
-    if conn is None:
-        _clear_sample_cache()
-    return inserted
-
-
 @st.cache_data(ttl=30)
 def get_all_samples(status_filter=None):
-    """
-    Fetch all samples, optionally filtered by status.
-    The index on status makes the filtered query very fast even with many rows.
-    Cached for 30s — short enough to feel fresh, long enough to avoid hammering the DB.
-    """
-    conn = get_conn()
-    if status_filter and status_filter != "All":
-        rows = conn.execute(
-            "SELECT * FROM samples WHERE status = ? ORDER BY id DESC", (status_filter,)
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM samples ORDER BY id DESC"
-        ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    return samples.all_samples(status_filter)
 
 
 @st.cache_data(ttl=30)
 def get_recent_samples(limit: int = 8):
-    """
-    A lightweight version of get_all_samples — only fetches the columns
-    the dashboard actually needs, and only the N most recent rows.
-    No point pulling all 100 columns × 100 rows just to show 8 cards.
-    """
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT sample_id, product_name, manufacturer, status, priority, assigned_to, "
-        "is_simulated "
-        "FROM samples ORDER BY id DESC LIMIT ?", (limit,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-
-def get_sample(sample_id: str):
-    """Look up a single sample by its ID. Not cached — used for detail views that need live data."""
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM samples WHERE sample_id = ?", (sample_id,)
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    return samples.recent_samples(limit)
 
 
 @st.cache_data(ttl=30)
 def count_samples_by_status():
-    """
-    GROUP BY query that returns a dict like {"Pending": 12, "Completed": 45, ...}.
-    Used by the dashboard KPI cards and bar chart. Much cheaper than loading all rows.
-    """
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT status, COUNT(*) as count FROM samples GROUP BY status
-    """).fetchall()
-    conn.close()
-    return {r["status"]: r["count"] for r in rows}
+    return samples.count_samples_by_status()
 
 
 @st.cache_data(ttl=30)
 def count_samples_by_priority():
-    """Same pattern as count_samples_by_status but grouped by priority level."""
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT priority, COUNT(*) as count FROM samples GROUP BY priority
-    """).fetchall()
-    conn.close()
-    return {r["priority"]: r["count"] for r in rows}
+    return samples.count_samples_by_priority()
 
 
 @st.cache_data(ttl=60)
 def count_simulated():
     """How much demo data the instance holds — drives the demo-data notice."""
-    conn = get_conn()
-    samples = conn.execute("SELECT COUNT(*) FROM samples WHERE is_simulated = 1").fetchone()[0]
-    results = conn.execute("SELECT COUNT(*) FROM test_results WHERE is_simulated = 1").fetchone()[0]
-    conn.close()
-    return {"samples": samples, "results": results}
+    return samples.count_simulated()
 
 
 @st.cache_data(ttl=60)
 def sample_exists():
-    """
-    Quick boolean check — is there at least one sample in the DB?
-    Used on startup to decide whether to run the auto-import.
-    COUNT(*) on an indexed table is nearly instant.
-    """
-    conn = get_conn()
-    count = conn.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
-    conn.close()
-    return count > 0
+    return samples.sample_exists()
 
 
 # ─────────────────────────────────────────────
 # TEST RESULTS
 # ─────────────────────────────────────────────
 
-def insert_test_result(data: dict, conn=None) -> int:
-    """
-    Insert a test result row; returns its id. No IGNORE — a sample can be
-    re-tested. Pass `conn` to join the caller's transaction. App code should
-    use services.record_result, which also writes the audit row.
-    """
-    def run(c):
-        return c.execute("""
-            INSERT INTO test_results
-                (sample_id, test_name, result_value, result_unit,
-                 spec_min, spec_max, status, tested_by, tested_at, notes)
-            VALUES
-                (:sample_id, :test_name, :result_value, :result_unit,
-                 :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes)
-        """, data).lastrowid
-
-    result_id = _run(conn, run)
-    if conn is None:
-        _clear_result_cache()
-    return result_id
-
-
 @st.cache_data(ttl=30)
 def get_results_for_sample(sample_id: str):
-    """Fetch all test results for a specific sample, newest first."""
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT * FROM test_results WHERE sample_id = ? ORDER BY id DESC
-    """, (sample_id,)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    return results.results_for_sample(sample_id)
 
 
 @st.cache_data(ttl=30)
 def get_all_results():
-    """
-    Fetch every test result in the system — used by Reports.
-    Potentially a big query, but Reports is an explicit user action,
-    not a background poll, so the load is acceptable.
-    """
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT * FROM test_results ORDER BY id DESC
-    """).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    return results.all_results()
 
 
 @st.cache_data(ttl=30)
 def get_oos_results(limit: int = 10):
-    """
-    Fetch only the Out-of-Spec results — cheaper than loading everything and
-    filtering in Python. The index on test_results.status makes this fast.
-    """
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT sample_id, test_name, result_value, result_unit,
-               spec_min, spec_max, tested_by, tested_at, is_simulated
-        FROM   test_results
-        WHERE  status = 'Fail (OOS)'
-        ORDER  BY id DESC
-        LIMIT  ?
-    """, (limit,)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    return results.oos_results(limit)
 
 
 @st.cache_data(ttl=30)
 def count_oos_results():
-    """
-    Count of OOS results — used as a KPI metric on the dashboard.
-    A single COUNT(*) is much faster than fetching all rows and len()-ing them.
-    """
-    conn = get_conn()
-    count = conn.execute(
-        "SELECT COUNT(*) FROM test_results WHERE status = 'Fail (OOS)'"
-    ).fetchone()[0]
-    conn.close()
-    return count
+    return results.count_oos_results()
 
 
 # ─────────────────────────────────────────────
 # PROTOCOLS
 # ─────────────────────────────────────────────
 
-def insert_protocol(data: dict, conn=None) -> int:
-    """
-    Insert a protocol; returns its id. Pass `conn` to join the caller's
-    transaction. App code should use services.create_protocol.
-    """
-    def run(c):
-        return c.execute("""
-            INSERT INTO protocols
-                (name, sample_type, description, steps, created_by, created_at)
-            VALUES
-                (:name, :sample_type, :description, :steps, :created_by, :created_at)
-        """, data).lastrowid
-
-    protocol_id = _run(conn, run)
-    if conn is None:
-        get_all_protocols.clear()
-    return protocol_id
-
-
 @st.cache_data(ttl=300)
 def get_all_protocols():
-    """
-    Fetch all protocols. Long TTL of 5 minutes — protocols are rarely modified
-    once the lab is up and running, so we can afford to cache them longer.
-    """
-    conn = get_conn()
-    rows = conn.execute("SELECT * FROM protocols ORDER BY id DESC").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    """Long TTL — protocols rarely change; create_protocol clears it."""
+    return protocols.all_protocols()
 
 
-def get_protocol(protocol_id: int):
-    """Look up a single protocol by ID — not cached since it's rarely needed."""
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM protocols WHERE id = ?", (protocol_id,)
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
+# ─────────────────────────────────────────────
+# INVALIDATION — called by services.py after a successful commit
+# ─────────────────────────────────────────────
+
+def clear_data_caches():
+    """Samples, results and the audit trail — every data write affects these."""
+    for cached in (get_all_samples, get_recent_samples, count_samples_by_status,
+                   count_samples_by_priority, count_simulated, sample_exists,
+                   get_results_for_sample, get_all_results, get_oos_results,
+                   count_oos_results, get_audit_trail):
+        cached.clear()
 
 
-def seed_protocols():
-    """
-    Pre-load standard GxP test protocols used in pharmaceutical QC labs.
-    These are based on real USP/ICH guidelines — Dissolution, Potency, Sterility, pH, Microbial.
-    Runs only once: if the protocols table already has rows, we skip entirely.
-    """
-    conn = get_conn()
-    count = conn.execute("SELECT COUNT(*) FROM protocols").fetchone()[0]
-    if count > 0:
-        conn.close()
-        return  # already seeded, nothing to do
+def clear_user_caches():
+    get_all_users.clear()
+    get_lab_techs.clear()
 
-    protocols = [
-        {
-            "name": "Dissolution Testing — USP Apparatus II",
-            "sample_type": "Tablet",
-            # This test is mandatory for all solid oral dosage forms — it tells us
-            # whether the drug actually dissolves and can be absorbed by the body.
-            "description": "Measures the rate and extent of drug release from solid oral dosage forms. Required for all solid oral products per USP <711>.",
-            "steps": "\n".join([
-                "1. Prepare dissolution medium (900 mL of 0.1N HCl or pH 6.8 buffer) at 37°C ± 0.5°C",
-                "2. Set paddle speed to 50 RPM",
-                "3. Place one tablet per vessel",
-                "4. Collect samples at 15, 30, 45, and 60 minutes",
-                "5. Filter samples through 0.45 µm membrane filter",
-                "6. Analyze by UV spectrophotometry or HPLC",
-                "7. Calculate % drug released at each time point",
-                "8. Accept if ≥80% released at 60 minutes (Q = 80%)",
-                "9. Document all results in the test result log",
-            ]),
-            "created_by": "admin",
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        },
-        {
-            "name": "Potency Assay — HPLC Method",
-            "sample_type": "Tablet",
-            # HPLC (High-Performance Liquid Chromatography) is the gold standard
-            # for measuring how much active ingredient is actually in the pill.
-            "description": "Determines the amount of active pharmaceutical ingredient (API) present in the sample. Acceptance: 90.0%–110.0% of label claim.",
-            "steps": "\n".join([
-                "1. Prepare reference standard solution at known concentration",
-                "2. Prepare sample: weigh 20 tablets, calculate average weight",
-                "3. Dissolve equivalent of one tablet weight in diluent",
-                "4. Sonicate for 15 minutes, filter through 0.22 µm filter",
-                "5. Inject standard and sample solutions into HPLC system",
-                "6. Column: C18, 150mm x 4.6mm, 5µm particle size",
-                "7. Mobile phase: Acetonitrile:Buffer (40:60)",
-                "8. Flow rate: 1.0 mL/min, UV detection at 254 nm",
-                "9. Calculate % label claim from peak areas",
-                "10. Accept if result is 90.0%–110.0%",
-            ]),
-            "created_by": "admin",
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        },
-        {
-            "name": "Sterility Testing — Membrane Filtration",
-            "sample_type": "Injectable",
-            # For injectables, any microbial contamination can be life-threatening —
-            # hence the 14-day incubation period to catch slow-growing organisms.
-            "description": "Verifies absence of viable microorganisms in sterile pharmaceutical products per USP <71>.",
-            "steps": "\n".join([
-                "1. Perform all testing in ISO Class 5 laminar flow hood",
-                "2. Prepare culture media: Fluid Thioglycollate (FTM) and Soybean Casein Digest (SCDB)",
-                "3. Filter entire sample volume through 0.45 µm membrane",
-                "4. Transfer membrane to both FTM and SCDB media",
-                "5. Incubate FTM at 30–35°C for 14 days",
-                "6. Incubate SCDB at 20–25°C for 14 days",
-                "7. Inspect daily for turbidity or microbial growth",
-                "8. Accept if no growth observed at 14 days",
-                "9. If growth observed: invalidate or fail — initiate deviation report",
-            ]),
-            "created_by": "admin",
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        },
-        {
-            "name": "pH Measurement — USP <791>",
-            "sample_type": "Liquid",
-            # pH affects everything: drug stability, patient comfort, absorption rate.
-            # Even a small drift outside spec can compromise the product.
-            "description": "Determines pH of liquid pharmaceutical preparations. Critical for product stability, efficacy, and patient safety.",
-            "steps": "\n".join([
-                "1. Calibrate pH meter with two buffer solutions bracketing expected sample pH",
-                "2. Rinse electrode with purified water, blot dry",
-                "3. Immerse electrode in sample at room temperature (20–25°C)",
-                "4. Allow reading to stabilize (minimum 30 seconds)",
-                "5. Record pH to two decimal places",
-                "6. Rinse electrode, repeat measurement — values must agree within ±0.05",
-                "7. Report mean of two readings",
-                "8. Compare to specification range in product monograph",
-            ]),
-            "created_by": "admin",
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        },
-        {
-            "name": "Microbial Limits Testing — USP <61>/<62>",
-            "sample_type": "Non-sterile",
-            # Non-sterile products (like oral tablets) aren't required to be
-            # completely free of microbes — but they still have limits.
-            # TAMC and TYMC are the standard counts pharma labs track.
-            "description": "Determines total aerobic microbial count (TAMC) and total yeast/mold count (TYMC) in non-sterile products.",
-            "steps": "\n".join([
-                "1. Prepare sample: dissolve/dilute in buffered sodium chloride-peptone solution",
-                "2. Perform serial 10-fold dilutions as needed",
-                "3. TAMC: plate on Soybean Casein Digest Agar, incubate 30–35°C for 5 days",
-                "4. TYMC: plate on Sabouraud Dextrose Agar, incubate 20–25°C for 5 days",
-                "5. Count colonies after incubation",
-                "6. Calculate CFU/g or CFU/mL",
-                "7. Accept TAMC ≤ 1000 CFU/g (oral), TYMC ≤ 100 CFU/g (oral)",
-                "8. Check for absence of specified microorganisms (E. coli, Salmonella)",
-                "9. Document all plate counts and calculations",
-            ]),
-            "created_by": "admin",
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        },
-    ]
 
-    for p in protocols:
-        conn.execute("""
-            INSERT INTO protocols (name, sample_type, description, steps, created_by, created_at)
-            VALUES (:name, :sample_type, :description, :steps, :created_by, :created_at)
-        """, p)
-
-    conn.commit()
-    conn.close()
+def clear_protocol_cache():
+    get_all_protocols.clear()

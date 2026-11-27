@@ -3,6 +3,8 @@ import pytest
 
 import db
 import services
+from repo import audit as audit_repo, core
+from repo.samples import insert_sample
 
 BASE = {
     "product_name": "Metformin 500mg", "lot_number": "AB1", "manufacturer": "Acme",
@@ -13,7 +15,7 @@ BASE = {
 
 
 def rows(sql, params=()):
-    conn = db.get_conn()
+    conn = core.get_conn()
     try:
         return [dict(r) for r in conn.execute(sql, params)]
     finally:
@@ -30,7 +32,7 @@ def failing_audit(monkeypatch):
     """Make the audit insert fail, as a crash between the two writes would."""
     def boom(*a, **k):
         raise RuntimeError("audit write failed")
-    monkeypatch.setattr(db, "write_audit", boom)
+    monkeypatch.setattr(audit_repo, "write_audit", boom)
 
 
 # ── register_sample ────────────────────────────────────────────────────────
@@ -51,7 +53,7 @@ def test_register_sample_rolls_back_when_audit_fails(fresh_db, failing_audit):
 
 
 def test_register_sample_retries_id_collision(fresh_db, monkeypatch):
-    db.insert_sample({**BASE, "sample_id": "LV-TAKEN", "status": "Pending", "source": "Manual"})
+    insert_sample({**BASE, "sample_id": "LV-TAKEN", "status": "Pending", "source": "Manual"})
     ids = iter(["LV-TAKEN", "LV-FRESH"])
     monkeypatch.setattr(services, "_new_sample_id", lambda: next(ids))
 
@@ -95,7 +97,7 @@ def test_stale_update_is_rejected_and_first_writer_wins(sample_id):
 
 def test_rejected_update_clears_stale_cache(sample_id):
     assert db.get_all_samples()[0]["version"] == 1          # cached copy
-    conn = db.get_conn()                                      # another process writes
+    conn = core.get_conn()                                    # another process writes
     conn.execute("UPDATE samples SET version = 2, status = 'Completed'")
     conn.commit()
     conn.close()
