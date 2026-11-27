@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 import io
 from datetime import datetime
-from db import get_all_samples, get_results_for_sample, get_all_results, log_action
+from db import get_all_samples, get_all_results, log_action
 from views.ui import simulated_text
 
 

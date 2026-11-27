@@ -126,8 +126,8 @@ def test_tracking_labels_simulated_samples(mixed_app):
     mixed_app.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
     assert not mixed_app.exception, mixed_app.exception
     labels = {e.label for e in mixed_app.expander}
-    assert any("D-0001-2024" in l and "SIMULATED" in l for l in labels)
-    assert any("M-1" in l and "SIMULATED" not in l for l in labels)
+    assert any("D-0001-2024" in label and "SIMULATED" in label for label in labels)
+    assert any("M-1" in label and "SIMULATED" not in label for label in labels)
 
 
 # ── reports ─────────────────────────────────────────────────────────────────
