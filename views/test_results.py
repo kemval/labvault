@@ -6,6 +6,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 from db import get_all_samples, get_results_for_sample, insert_test_result, log_action
+from views.ui import simulated_text, SIMULATED_LABEL
 
 
 TEST_TYPES = [
@@ -99,8 +100,10 @@ def show():
 
     # ── LOG NEW RESULT ────────────────────────────────────────
     with tab_log:
-        sample_options = {f"{s['sample_id']} — {s['product_name'][:50]}": s["sample_id"]
-                          for s in samples}
+        sample_options = {
+            f"{s['sample_id']} — {s['product_name'][:50]}"
+            + (f" ({SIMULATED_LABEL})" if s.get("is_simulated") else ""): s["sample_id"]
+            for s in samples}
 
         with st.form("result_form", clear_on_submit=True):
             st.markdown("#### New Test Result Entry")
@@ -192,12 +195,13 @@ def show():
         df = pd.DataFrame(all_results)[[
             "sample_id", "product_name", "test_name",
             "result_value", "result_unit", "spec_min", "spec_max",
-            "status", "tested_by", "tested_at"
+            "status", "tested_by", "tested_at", "is_simulated"
         ]]
+        df["is_simulated"] = df["is_simulated"].map(simulated_text)
         df.columns = [
             "Sample ID", "Product", "Test",
             "Result", "Unit", "Spec Min", "Spec Max",
-            "Status", "Tested By", "Date"
+            "Status", "Tested By", "Date", "Simulated"
         ]
 
         # Color OOS rows

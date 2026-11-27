@@ -16,26 +16,13 @@ database, then deletes in one transaction and records an audit entry.
 """
 
 import argparse
-import re
+import os
 import sqlite3
 import sys
 from datetime import datetime
 
-# Every note template seed.simulate_test_results can produce.
-SIMULATOR_NOTES = re.compile(
-    r"^(?:"
-    r"Within specification\."
-    r"|Failed USP Apparatus II\. Result [\d.]+% below Q=80% specification\."
-    r"|Superpotency confirmed\. Result [\d.]+% exceeds 110% upper limit\."
-    r"|Subpotency confirmed\. Result [\d.]+% below 90% lower limit\."
-    r"|Microbial contamination detected: \d+ CFU/mL\. Sterility failure\."
-    r"|Visible particulate matter detected: \d+ particles/container\."
-    r"|pH [\d.]+ outside specification range 4\.5–7\.5\."
-    r"|Product potency within spec\. Recall due to labeling deficiency, not product failure\."
-    r"|Label deficiency confirmed\. Missing or incorrect information identified\."
-    r"|Result [\d.]+% below 90% specification\."
-    r")$"
-)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from seed import SIMULATOR_NOTES  # noqa: E402  (single source of the note patterns)
 
 
 def find_duplicates(conn):

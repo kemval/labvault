@@ -161,7 +161,39 @@ def init_db():
 # in SQLite's PRAGMA user_version. Never edit or reorder a released migration.
 # See docs/adr/0003-schema-migrations.md.
 
-MIGRATIONS = []
+def _m001_simulated_flag(conn):
+    """Audit C4: mark demo data so it can't be mistaken for real QC records."""
+    from seed import SIMULATOR_NOTES  # lazy: seed imports this module
+
+    conn.execute("ALTER TABLE samples ADD COLUMN is_simulated INTEGER NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE test_results ADD COLUMN is_simulated INTEGER NOT NULL DEFAULT 0")
+
+    # Every FDA-imported sample is demo data (invented lot, assignee, status).
+    n_samples = conn.execute(
+        "UPDATE samples SET is_simulated = 1 WHERE source = 'FDA'").rowcount
+
+    # Only results in the simulator's exact wording; anything logged by hand
+    # against a demo sample stays a real entry.
+    rows = conn.execute("""
+        SELECT t.id, t.notes FROM test_results t
+        JOIN samples s ON s.sample_id = t.sample_id
+        WHERE s.source = 'FDA'
+    """).fetchall()
+    result_ids = [(r["id"],) for r in rows if SIMULATOR_NOTES.match(r["notes"] or "")]
+    conn.executemany("UPDATE test_results SET is_simulated = 1 WHERE id = ?", result_ids)
+
+    if n_samples or result_ids:
+        conn.execute("""
+            INSERT INTO audit_trail (timestamp, user, action, module, target_id, detail)
+            VALUES (?, 'system', 'SCHEMA_MIGRATED', 'Database', 'migration 1', ?)
+        """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+              f"Flagged {n_samples} FDA-imported samples and {len(result_ids)} "
+              f"simulator-generated test results as simulated (audit C4)."))
+
+
+MIGRATIONS = [
+    _m001_simulated_flag,
+]
 
 
 def schema_version(conn) -> int:
@@ -208,6 +240,7 @@ def _clear_sample_cache():
     count_samples_by_status.clear()
     count_samples_by_priority.clear()
     sample_exists.clear()
+    count_simulated.clear()
 
 
 def _clear_result_cache():
@@ -216,6 +249,7 @@ def _clear_result_cache():
     get_oos_results.clear()
     count_oos_results.clear()
     get_results_for_sample.clear()
+    count_simulated.clear()
 
 
 def clear_data_caches():
@@ -435,7 +469,8 @@ def get_recent_samples(limit: int = 8):
     """
     conn = get_conn()
     rows = conn.execute(
-        "SELECT sample_id, product_name, manufacturer, status, priority, assigned_to "
+        "SELECT sample_id, product_name, manufacturer, status, priority, assigned_to, "
+        "is_simulated "
         "FROM samples ORDER BY id DESC LIMIT ?", (limit,)
     ).fetchall()
     conn.close()
@@ -510,6 +545,16 @@ def count_samples_by_priority():
 
 
 @st.cache_data(ttl=60)
+def count_simulated():
+    """How much demo data the instance holds — drives the demo-data notice."""
+    conn = get_conn()
+    samples = conn.execute("SELECT COUNT(*) FROM samples WHERE is_simulated = 1").fetchone()[0]
+    results = conn.execute("SELECT COUNT(*) FROM test_results WHERE is_simulated = 1").fetchone()[0]
+    conn.close()
+    return {"samples": samples, "results": results}
+
+
+@st.cache_data(ttl=60)
 def sample_exists():
     """
     Quick boolean check — is there at least one sample in the DB?
@@ -580,7 +625,7 @@ def get_oos_results(limit: int = 10):
     conn = get_conn()
     rows = conn.execute("""
         SELECT sample_id, test_name, result_value, result_unit,
-               spec_min, spec_max, tested_by, tested_at
+               spec_min, spec_max, tested_by, tested_at, is_simulated
         FROM   test_results
         WHERE  status = 'Fail (OOS)'
         ORDER  BY id DESC

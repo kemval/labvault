@@ -6,7 +6,8 @@ Run with: streamlit run app.py
 
 import streamlit as st
 from config import ConfigError, demo_mode, admin_password
-from db import init_db, seed_users, seed_protocols, authenticate, sample_exists, DEMO_USERS
+from db import (init_db, seed_users, seed_protocols, authenticate, sample_exists,
+                count_simulated, DEMO_USERS)
 from seed import seed_from_fda
 
 # ─────────────────────────────────────────────
@@ -98,6 +99,7 @@ st.markdown("""
     .badge-critical   { background:#fce4ec; color:#c62828; }
     .badge-major      { background:#fff3e0; color:#e65100; }
     .badge-minor      { background:#e8f5e9; color:#2e7d32; }
+    .badge-sim        { background:#ede7f6; color:#4527a0; }  /* demo data marker */
 
     /* Login box — centered card that floats in the middle of the page.
        The shadow gives it depth so it doesn't feel flat. */
@@ -204,7 +206,7 @@ def show_login():
             <div class="login-title">LabVault</div>
             <div class="login-subtitle">
                 Pharmaceutical Lab Management System<br>
-                Powered by real FDA recall data
+                Sample data: real FDA recalls with simulated lab results
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -367,5 +369,15 @@ else:
                     if st.session_state.user["role"] == "admin"
                     else "Ask an administrator to import the data.")
             st.error(f"Could not import FDA data: {result['error']}. {hint}")
+
+    # Demo data must never be mistaken for real QC records (audit C4).
+    simulated = count_simulated()
+    if simulated["samples"] or simulated["results"]:
+        st.info(
+            f"🧪 **Demo data:** {simulated['samples']} samples and {simulated['results']} "
+            "test results here are **simulated**: real FDA recall records with invented "
+            "lot numbers, assignments and lab results. They are marked **SIMULATED** "
+            "and must not be used as real QC data."
+        )
 
     route()

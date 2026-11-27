@@ -5,6 +5,7 @@ populates the samples + test_results tables with realistic lab data.
 Run automatically on first launch from app.py.
 """
 
+import re
 import requests
 import random
 import string
@@ -15,6 +16,30 @@ from db import get_conn, get_lab_techs, clear_data_caches
 # It returns real recall records filed with the FDA. Pretty incredible that
 # this data is just publicly available.
 FDA_URL = "https://api.fda.gov/drug/enforcement.json"
+
+# Imported samples and their results are demo data: the recall is real, but
+# the lot number, assignment, lab status and every test result are invented.
+# They are stored with is_simulated = 1 and attributed to this pseudo-user,
+# never to a real analyst.
+SIMULATOR_USER = "simulator"
+
+# Every note simulate_test_results() can write. Used to recognise simulated
+# results in databases created before the is_simulated flag existed.
+# Keep in sync with simulate_test_results — tests enforce it.
+SIMULATOR_NOTES = re.compile(
+    r"^(?:"
+    r"Within specification\."
+    r"|Failed USP Apparatus II\. Result [\d.]+% below Q=80% specification\."
+    r"|Superpotency confirmed\. Result [\d.]+% exceeds 110% upper limit\."
+    r"|Subpotency confirmed\. Result [\d.]+% below 90% lower limit\."
+    r"|Microbial contamination detected: \d+ CFU/mL\. Sterility failure\."
+    r"|Visible particulate matter detected: \d+ particles/container\."
+    r"|pH [\d.]+ outside specification range 4\.5–7\.5\."
+    r"|Product potency within spec\. Recall due to labeling deficiency, not product failure\."
+    r"|Label deficiency confirmed\. Missing or incorrect information identified\."
+    r"|Result [\d.]+% below 90% specification\."
+    r")$"
+)
 
 # ─────────────────────────────────────────────
 # MAPPINGS — translate FDA fields to LabVault
@@ -348,7 +373,8 @@ def seed_from_fda(limit: int = 100, only_if_empty: bool = False) -> dict:
                 "status":            status,
                 "assigned_to":       assigned_to,
                 "protocol_id":       None,  # not auto-assigned — lab tech picks the protocol
-                "notes":             f"Imported from FDA Recall Enterprise System. Original status: {raw_status}.",
+                "notes":             (f"Imported from FDA Recall Enterprise System. Original status: {raw_status}. "
+                                      "SIMULATED: lot number, assignment and test results are not real."),
                 "source":            "FDA",
             }
 
@@ -357,7 +383,7 @@ def seed_from_fda(limit: int = 100, only_if_empty: bool = False) -> dict:
                 sample_id   = sample_id,
                 reason      = reason,
                 sample_type = sample_type,
-                tested_by   = assigned_to,
+                tested_by   = SIMULATOR_USER,
                 base_date   = collection_date,
             )))
 
@@ -397,11 +423,11 @@ def seed_from_fda(limit: int = 100, only_if_empty: bool = False) -> dict:
                 INSERT OR IGNORE INTO samples
                     (sample_id, product_name, lot_number, manufacturer, sample_type,
                      recall_class, priority, reason_for_recall, collection_date,
-                     status, assigned_to, protocol_id, notes, source)
+                     status, assigned_to, protocol_id, notes, source, is_simulated)
                 VALUES
                     (:sample_id, :product_name, :lot_number, :manufacturer, :sample_type,
                      :recall_class, :priority, :reason_for_recall, :collection_date,
-                     :status, :assigned_to, :protocol_id, :notes, :source)
+                     :status, :assigned_to, :protocol_id, :notes, :source, 1)
             """, s)
             if cur.rowcount == 1:
                 inserted_ids.add(s["sample_id"])
@@ -411,10 +437,10 @@ def seed_from_fda(limit: int = 100, only_if_empty: bool = False) -> dict:
             conn.executemany("""
                 INSERT INTO test_results
                     (sample_id, test_name, result_value, result_unit,
-                     spec_min, spec_max, status, tested_by, tested_at, notes)
+                     spec_min, spec_max, status, tested_by, tested_at, notes, is_simulated)
                 VALUES
                     (:sample_id, :test_name, :result_value, :result_unit,
-                     :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes)
+                     :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes, 1)
             """, new_results)
 
         already_present = len(parsed) - len(inserted_ids)
