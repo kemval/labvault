@@ -128,3 +128,23 @@ def test_api_failure_reports_error_and_writes_nothing(fresh_db, monkeypatch):
 
     assert result == {"success": False, "error": "API down", "count": 0}
     assert counts(fresh_db) == {"samples": 0, "test_results": 0, "audit_trail": 0}
+
+
+def test_unreadable_date_is_skipped_not_replaced_with_today(caplog):
+    import seed
+    from fake_fda import record
+    bad = {**record(2), "recall_initiation_date": "2024-13-45"}
+    with caplog.at_level("WARNING", logger="seed"):
+        parsed, skipped = seed.parse_records([record(1), bad], ["kembly"])
+    assert [s["sample_id"] for s, _ in parsed] == ["D-0001-2024"] and skipped == 1
+    assert "D-0002-2024" in caplog.text and "2024-13-45" in caplog.text
+
+
+def test_malformed_record_is_skipped_and_logged(caplog):
+    import seed
+    from fake_fda import record
+    broken = {**record(2), "product_description": None}       # .split on None fails
+    with caplog.at_level("WARNING", logger="seed"):
+        parsed, skipped = seed.parse_records([record(1), broken], ["kembly"])
+    assert len(parsed) == 1 and skipped == 1
+    assert "D-0002-2024" in caplog.text

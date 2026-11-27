@@ -4,6 +4,7 @@ repo/protocols.py — test protocols, including the default GxP set.
 
 from datetime import datetime
 
+from domain import SYSTEM_USER
 from repo.core import get_conn, run_in
 
 
@@ -73,7 +74,7 @@ def seed_protocols():
                 "8. Accept if ≥80% released at 60 minutes (Q = 80%)",
                 "9. Document all results in the test result log",
             ]),
-            "created_by": "system",
+            "created_by": SYSTEM_USER,
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
         {
@@ -94,7 +95,7 @@ def seed_protocols():
                 "9. Calculate % label claim from peak areas",
                 "10. Accept if result is 90.0%–110.0%",
             ]),
-            "created_by": "system",
+            "created_by": SYSTEM_USER,
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
         {
@@ -114,7 +115,7 @@ def seed_protocols():
                 "8. Accept if no growth observed at 14 days",
                 "9. If growth observed: invalidate or fail — initiate deviation report",
             ]),
-            "created_by": "system",
+            "created_by": SYSTEM_USER,
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
         {
@@ -133,7 +134,7 @@ def seed_protocols():
                 "7. Report mean of two readings",
                 "8. Compare to specification range in product monograph",
             ]),
-            "created_by": "system",
+            "created_by": SYSTEM_USER,
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
         {
@@ -154,7 +155,7 @@ def seed_protocols():
                 "8. Check for absence of specified microorganisms (E. coli, Salmonella)",
                 "9. Document all plate counts and calculations",
             ]),
-            "created_by": "system",
+            "created_by": SYSTEM_USER,
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         },
     ]

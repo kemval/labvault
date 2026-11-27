@@ -3,11 +3,12 @@ pages/test_results.py — Log and view test results, OOS flagging
 """
 
 import streamlit as st
+from domain import RESULT_OOS, RESULT_PASS, RESULT_STATUSES
 import pandas as pd
 from datetime import date
 from db import get_all_samples, get_results_for_sample
 import services
-from views.ui import simulated_text, SIMULATED_LABEL
+from views.ui import simulated_text, SIMULATED_LABEL, page_header
 
 
 TEST_TYPES = [
@@ -33,17 +34,17 @@ QUALITATIVE_TESTS = {"Label Review"}
 # Tests that may be recorded either way.
 FLEXIBLE_TESTS = {"Other"}
 
-OUTCOME_OPTIONS = ["—", "Pass", "Fail"]
+OUTCOME_OPTIONS = ["—", RESULT_PASS, "Fail"]
 
 
 def determine_status(value, spec_min, spec_max):
     if value is None:
-        return "Fail (OOS)"
+        return RESULT_OOS
     if spec_min is not None and value < spec_min:
-        return "Fail (OOS)"
+        return RESULT_OOS
     if spec_max is not None and value > spec_max:
-        return "Fail (OOS)"
-    return "Pass"
+        return RESULT_OOS
+    return RESULT_PASS
 
 
 def evaluate_result(test_name, value, spec_min, spec_max, outcome):
@@ -64,7 +65,7 @@ def evaluate_result(test_name, value, spec_min, spec_max, outcome):
                           "and the spec limits blank.")
         if errors:
             return None, errors
-        return ("Pass" if outcome == "Pass" else "Fail (OOS)"), []
+        return (RESULT_PASS if outcome == RESULT_PASS else RESULT_OOS), []
 
     errors = []
     if outcome is not None:
@@ -83,12 +84,7 @@ def evaluate_result(test_name, value, spec_min, spec_max, outcome):
 
 
 def show():
-    st.markdown("""
-        <div class="lv-header">
-            <div><h1>📋 Test Results</h1>
-            <span>Log laboratory test results and review Out-of-Spec findings</span></div>
-        </div>
-    """, unsafe_allow_html=True)
+    page_header("📋 Test Results", "Log laboratory test results and review Out-of-Spec findings")
 
     user    = st.session_state.user
     samples = get_all_samples()
@@ -170,7 +166,7 @@ def show():
                 st.error(str(e))
                 return
 
-            if status == "Fail (OOS)":
+            if status == RESULT_OOS:
                 st.error(f"🚨 OOS RESULT: {test_name} = {result_text} — Outside specification. Deviation review required.")
             else:
                 st.success(f"✅ Result logged: {test_name} = {result_text} — **{status}**")
@@ -179,7 +175,7 @@ def show():
     with tab_view:
         st.markdown("#### All Test Results")
 
-        filter_status = st.selectbox("Filter", ["All", "Pass", "Fail (OOS)"])
+        filter_status = st.selectbox("Filter", ["All", *RESULT_STATUSES])
 
         # Gather all results across all samples
         all_results = []
@@ -209,9 +205,9 @@ def show():
 
         # Color OOS rows
         def color_status(val):
-            if val == "Fail (OOS)":
+            if val == RESULT_OOS:
                 return "background-color: #fce4ec; color: #c62828; font-weight: 600"
-            elif val == "Pass":
+            elif val == RESULT_PASS:
                 return "background-color: #e8f5e9; color: #2e7d32; font-weight: 600"
             return ""
 

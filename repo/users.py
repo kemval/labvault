@@ -5,6 +5,7 @@ repo/users.py — accounts and authentication.
 import hashlib
 
 from config import ConfigError
+from domain import ROLE_ADMIN, ROLE_LAB_TECH, ROLE_SYSTEM
 from repo.core import get_conn
 
 
@@ -15,10 +16,10 @@ def hash_pw(password: str) -> str:
 
 DEMO_USERS = [
     # (username, password, role)
-    ("admin",  "admin123", "admin"),
-    ("kembly", "lab2024",  "lab_tech"),
-    ("carlos", "lab2024",  "lab_tech"),
-    ("maria",  "lab2024",  "lab_tech"),
+    ("admin",  "admin123", ROLE_ADMIN),
+    ("kembly", "lab2024",  ROLE_LAB_TECH),
+    ("carlos", "lab2024",  ROLE_LAB_TECH),
+    ("maria",  "lab2024",  ROLE_LAB_TECH),
 ]
 
 
@@ -39,7 +40,7 @@ def seed_users(demo: bool, admin_password=None):
     try:
         # The non-login system accounts (migration 3) don't count as set up.
         has_users = conn.execute(
-            "SELECT 1 FROM users WHERE role != 'system' LIMIT 1").fetchone() is not None
+            "SELECT 1 FROM users WHERE role != ? LIMIT 1", (ROLE_SYSTEM,)).fetchone() is not None
 
         if not demo:
             exposed = [
@@ -72,7 +73,7 @@ def seed_users(demo: bool, admin_password=None):
                     f"LABVAULT_ADMIN_PASSWORD must be at least "
                     f"{MIN_ADMIN_PASSWORD_LENGTH} characters."
                 )
-            rows = [("admin", hash_pw(admin_password), "admin")]
+            rows = [("admin", hash_pw(admin_password), ROLE_ADMIN)]
 
         conn.executemany(
             "INSERT INTO users (username, password, role) VALUES (?, ?, ?)", rows
@@ -92,8 +93,8 @@ def authenticate(username: str, password: str):
     conn = get_conn()
     c = conn.cursor()
     row = c.execute("""
-        SELECT * FROM users WHERE username = ? AND password = ? AND role != 'system'
-    """, (username, hash_pw(password))).fetchone()
+        SELECT * FROM users WHERE username = ? AND password = ? AND role != ?
+    """, (username, hash_pw(password), ROLE_SYSTEM)).fetchone()
     conn.close()
     return dict(row) if row else None
 
@@ -112,7 +113,7 @@ def lab_techs():
     """
     conn = get_conn()
     rows = conn.execute(
-        "SELECT username FROM users WHERE role = 'lab_tech'"
+        "SELECT username FROM users WHERE role = ?", (ROLE_LAB_TECH,)
     ).fetchall()
     conn.close()
     return [r["username"] for r in rows]

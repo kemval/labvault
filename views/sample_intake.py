@@ -3,19 +3,15 @@ pages/sample_intake.py — Register new samples manually
 """
 
 import streamlit as st
+from domain import PRIORITIES, RECALL_CLASSES, SAMPLE_TYPES
 from datetime import date
 from db import get_all_protocols, get_lab_techs
-from views.ui import UNASSIGNED
+from views.ui import UNASSIGNED, page_header
 import services
 
 
 def show():
-    st.markdown("""
-        <div class="lv-header">
-            <div><h1>🧫 Sample Intake</h1>
-            <span>Register a new sample for laboratory testing</span></div>
-        </div>
-    """, unsafe_allow_html=True)
+    page_header("🧫 Sample Intake", "Register a new sample for laboratory testing")
 
     user      = st.session_state.user
     protocols = get_all_protocols()
@@ -31,11 +27,11 @@ def show():
             product_name = st.text_input("Product Name *", placeholder="e.g. Metformin HCl Tablets 500mg")
             manufacturer = st.text_input("Manufacturer / Source *", placeholder="e.g. Sun Pharmaceutical")
             lot_number   = st.text_input("Lot Number", placeholder="e.g. AB1234")
-            sample_type  = st.selectbox("Sample Type", ["Tablet", "Capsule", "Injectable", "Liquid", "Topical", "Powder"])
+            sample_type  = st.selectbox("Sample Type", SAMPLE_TYPES)
 
         with c2:
-            recall_class    = st.selectbox("Classification", ["Class I", "Class II", "Class III"])
-            priority        = st.selectbox("Priority", ["Critical", "Major", "Minor"])
+            recall_class    = st.selectbox("Classification", RECALL_CLASSES)
+            priority        = st.selectbox("Priority", PRIORITIES)
             collection_date = st.date_input("Collection Date", value=date.today())
             assigned_to     = st.selectbox("Assign To", [UNASSIGNED] + techs)
 

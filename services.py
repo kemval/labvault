@@ -11,6 +11,7 @@ See docs/adr/0005-service-layer.md.
 import uuid
 
 import db  # cache invalidation only
+from domain import ROLE_SYSTEM, SOURCE_MANUAL, STATUS_PENDING, SYSTEM_USER
 import seed
 from repo import audit, core, fda_import, protocols, results, samples, users
 
@@ -46,7 +47,7 @@ def register_sample(data: dict, user: str) -> str:
     """
     for _ in range(_ID_ATTEMPTS):
         sample = {**data, "sample_id": _new_sample_id(),
-                  "status": "Pending", "source": "Manual"}
+                  "status": STATUS_PENDING, "source": SOURCE_MANUAL}
         with core.transaction() as conn:
             if not samples.insert_sample(sample, conn=conn):
                 continue  # ID collision — rolls back nothing, try a new ID
@@ -157,7 +158,7 @@ def create_protocol(data: dict, user: str) -> int:
 # FDA IMPORT
 # ─────────────────────────────────────────────
 
-def import_fda(limit: int = 100, only_if_empty: bool = False, user: str = "system") -> dict:
+def import_fda(limit: int = 100, only_if_empty: bool = False, user: str = SYSTEM_USER) -> dict:
     """
     Fetch openFDA recalls, simulate results (seed.py) and store the batch in
     one transaction (repo/fda_import.py, ADR 0002). With only_if_empty=True
@@ -206,9 +207,9 @@ def sign_in(username: str, password: str):
                               "Signed in")
         else:
             known = conn.execute(
-                "SELECT 1 FROM users WHERE username = ? AND role != 'system'",
-                (username,)).fetchone()
-            audit.write_audit(conn, username if known else "system", "LOGIN_FAILED", "Auth",
+                "SELECT 1 FROM users WHERE username = ? AND role != ?",
+                (username, ROLE_SYSTEM)).fetchone()
+            audit.write_audit(conn, username if known else SYSTEM_USER, "LOGIN_FAILED", "Auth",
                               (username or "")[:64], "Invalid username or password")
     db.clear_audit_cache()
     return user

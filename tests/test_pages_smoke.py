@@ -34,3 +34,25 @@ def test_page_renders(populated, page):
     at = login(run_app(), "admin", "admin123")
     at.sidebar.radio[0].set_value(page).run()
     assert not at.exception, at.exception
+
+
+def app_pages():
+    # app.py is a Streamlit script (importing it runs the app), so read its
+    # PAGES table from the source.
+    import ast
+    import os
+    tree = ast.parse(open(os.path.join(os.path.dirname(__file__), "..", "app.py")).read())
+    node = next(n for n in tree.body if isinstance(n, ast.Assign)
+                and getattr(n.targets[0], "id", None) == "PAGES")
+    return ast.literal_eval(node.value)
+
+
+def test_smoke_list_covers_every_page():
+    assert [label for label, *_ in app_pages()] == PAGES
+
+
+def test_lab_tech_navigation_hides_admin_only_pages(populated):
+    at = login(run_app(), "kembly", "lab2024")
+    admin_only = {label for label, _, _, admin in app_pages() if admin}
+    assert admin_only == {"⚙️  Admin"}
+    assert not admin_only & set(at.sidebar.radio[0].options)

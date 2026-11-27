@@ -4,7 +4,7 @@ import io
 import openpyxl
 import pytest
 
-import seed
+import domain
 import services
 from fake_fda import record, serve
 from test_app_login import login, run_app  # samples always exist here, so no auto-import
@@ -82,7 +82,7 @@ def test_new_imports_are_flagged_and_attributed_to_simulator(fresh_db, monkeypat
     assert {r["is_simulated"] for r in rows(fresh_db, "SELECT * FROM samples")} == {1}
     results = rows(fresh_db, "SELECT * FROM test_results")
     assert results and {r["is_simulated"] for r in results} == {1}
-    assert {r["tested_by"] for r in results} == {seed.SIMULATOR_USER}
+    assert {r["tested_by"] for r in results} == {domain.SIMULATOR_USER}
     assert all("SIMULATED" in r["notes"] for r in rows(fresh_db, "SELECT * FROM samples"))
 
 
