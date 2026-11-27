@@ -184,27 +184,76 @@ def hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-def seed_users():
+# Public demo accounts — their passwords are published on the login screen
+# and in the README, so they may only ever exist in demo mode.
+DEMO_USERS = [
+    # (username, password, role)
+    ("admin",  "admin123", "admin"),
+    ("kembly", "lab2024",  "lab_tech"),
+    ("carlos", "lab2024",  "lab_tech"),
+    ("maria",  "lab2024",  "lab_tech"),
+]
+
+MIN_ADMIN_PASSWORD_LENGTH = 12
+
+
+def seed_users(demo: bool, admin_password=None):
     """
-    Insert the default user accounts on first run.
-    INSERT OR IGNORE means running this again won't duplicate anything —
-    totally safe to call on every startup.
+    Create the initial accounts — only when the users table is empty, so
+    accounts that were deleted or changed later are never silently re-created.
+
+    Demo mode seeds DEMO_USERS. Secure mode seeds a single `admin` with the
+    operator-supplied password, and refuses to run on a database that still
+    contains accounts with published demo passwords.
+    Raises config.ConfigError when the app must not start.
     """
+    from config import ConfigError
+
     conn = get_conn()
-    c = conn.cursor()
-    users = [
-        ("admin",    hash_pw("admin123"),   "admin"),
-        ("kembly",   hash_pw("lab2024"),    "lab_tech"),
-        ("carlos",   hash_pw("lab2024"),    "lab_tech"),
-        ("maria",    hash_pw("lab2024"),    "lab_tech"),
-    ]
-    for u in users:
-        c.execute("""
-            INSERT OR IGNORE INTO users (username, password, role)
-            VALUES (?, ?, ?)
-        """, u)
-    conn.commit()
-    conn.close()
+    try:
+        has_users = conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+
+        if not demo:
+            exposed = [
+                username for username, password, _ in DEMO_USERS
+                if conn.execute(
+                    "SELECT 1 FROM users WHERE username = ? AND password = ?",
+                    (username, hash_pw(password)),
+                ).fetchone()
+            ]
+            if exposed:
+                raise ConfigError(
+                    "These accounts still use the published demo passwords: "
+                    f"{', '.join(exposed)}. Use a fresh database for a non-demo "
+                    "deployment, or set LABVAULT_DEMO_MODE=true for a demo."
+                )
+
+        if has_users:
+            return
+
+        if demo:
+            rows = [(u, hash_pw(p), r) for u, p, r in DEMO_USERS]
+        else:
+            if not admin_password:
+                raise ConfigError(
+                    "No users exist yet. Set LABVAULT_ADMIN_PASSWORD to create the "
+                    "initial admin account, or set LABVAULT_DEMO_MODE=true for a demo."
+                )
+            if len(admin_password) < MIN_ADMIN_PASSWORD_LENGTH:
+                raise ConfigError(
+                    f"LABVAULT_ADMIN_PASSWORD must be at least "
+                    f"{MIN_ADMIN_PASSWORD_LENGTH} characters."
+                )
+            rows = [("admin", hash_pw(admin_password), "admin")]
+
+        conn.executemany(
+            "INSERT INTO users (username, password, role) VALUES (?, ?, ?)", rows
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    get_all_users.clear()
+    get_lab_techs.clear()
 
 
 def authenticate(username: str, password: str):

@@ -4,7 +4,8 @@ Only accessible to users with role='admin'. Lab techs get a hard stop at the doo
 """
 
 import streamlit as st
-from db import get_all_users, get_all_samples, count_samples_by_status, count_oos_results
+from config import demo_mode
+from db import get_all_users, get_all_samples, count_samples_by_status, count_oos_results, DEMO_USERS
 
 
 def show():
@@ -48,16 +49,15 @@ def show():
         role_badge = "🔴 Admin" if u["role"] == "admin" else "🔵 Lab Tech"
         st.markdown(f"- **{u['username']}** — {role_badge}")
 
-    st.markdown("---")
-    st.markdown("#### Default Login Credentials")
-    # Displayed in a code block so it's easy to copy — just for demo convenience
-    st.code("""
-Admin     →  username: admin    password: admin123
-Lab Tech  →  username: kembly   password: lab2024
-Lab Tech  →  username: carlos   password: lab2024
-Lab Tech  →  username: maria    password: lab2024
-    """)
+    # Demo credentials are public by design — only shown on demo instances.
+    if demo_mode():
+        st.markdown("---")
+        st.markdown("#### Demo Login Credentials")
+        label = {"admin": "Admin", "lab_tech": "Lab Tech"}
+        st.code("\n".join(
+            f"{label[r]:<9} →  username: {u:<8} password: {p}" for u, p, r in DEMO_USERS
+        ))
 
-    # A gentle reminder that adding users requires a code change for now.
-    # In a real production system this would obviously be a full user management UI.
-    st.info("To add new users, update the `seed_users()` function in `db.py` and re-run the app.")
+    # There is no user-management UI yet (roadmap item 3.6).
+    st.info("User management is not available in the app yet. Accounts are created "
+            "on first start only — see the Configuration section of the README.")

@@ -5,7 +5,8 @@ Run with: streamlit run app.py
 """
 
 import streamlit as st
-from db import init_db, seed_users, seed_protocols, authenticate, sample_exists
+from config import ConfigError, demo_mode, admin_password
+from db import init_db, seed_users, seed_protocols, authenticate, sample_exists, DEMO_USERS
 from seed import seed_from_fda
 
 # ─────────────────────────────────────────────
@@ -151,18 +152,22 @@ st.markdown("""
 # FIRST-RUN SETUP
 # ─────────────────────────────────────────────
 
-# @st.cache_resource is perfect here — it runs once per server session and
-# caches the result forever. No matter how many times the page reloads,
-# init_db() and seeding only happen once. Super efficient.
+# @st.cache_resource runs this once per server process (shared by every
+# session), so init_db() and seeding happen once, not on every rerun.
+# If setup raises, nothing is cached and the next run tries again.
 @st.cache_resource(show_spinner=False)
 def setup():
-    """Initialize DB and seed data exactly once per session."""
+    """Initialize DB and seed data once per server process."""
     init_db()        # creates all tables and indexes if they don't exist yet
-    seed_users()     # adds default admin + lab tech accounts
+    seed_users(demo=demo_mode(), admin_password=admin_password())
     seed_protocols() # loads the standard GxP protocols (Dissolution, Potency, etc.)
     return True
 
-setup()
+try:
+    setup()
+except ConfigError as e:
+    st.error(f"LabVault is not configured correctly: {e}")
+    st.stop()
 
 
 # ─────────────────────────────────────────────
@@ -223,13 +228,16 @@ def show_login():
             else:
                 st.error("Invalid username or password.")
 
-        st.markdown("---")
-        # A small hint for demo purposes — helpful for anyone exploring the app
-        st.markdown(
-            "<small style='color:#999'>Demo accounts — Admin: `admin` / `admin123` &nbsp;|&nbsp; "
-            "Lab Tech: `kembly` / `lab2024`</small>",
-            unsafe_allow_html=True
-        )
+        # Demo credentials are public by design, so they are shown only on
+        # demo instances — never on a secure deployment.
+        if demo_mode():
+            st.markdown("---")
+            admin_user = next(u for u in DEMO_USERS if u[2] == "admin")
+            tech_user  = next(u for u in DEMO_USERS if u[2] == "lab_tech")
+            st.caption(
+                f"Demo instance — Admin: `{admin_user[0]}` / `{admin_user[1]}`  |  "
+                f"Lab Tech: `{tech_user[0]}` / `{tech_user[1]}`"
+            )
 
 
 # ─────────────────────────────────────────────

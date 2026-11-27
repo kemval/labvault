@@ -18,7 +18,7 @@
 
 <p align="center">
   <strong>👉 <a href="https://labvault.streamlit.app/">Try the live demo here</a> 👈</strong><br/>
-  <sub>Login with <code>admin</code> / <code>admin123</code> or <code>kembly</code> / <code>lab2024</code></sub>
+  <sub>Live demo login: <code>admin</code> / <code>admin123</code> or <code>kembly</code> / <code>lab2024</code> (demo mode only)</sub>
 </p>
 
 ---
@@ -413,20 +413,33 @@ source venv/bin/activate        # macOS / Linux
 # 3. Install dependencies
 pip install -r requirements.txt
 
-# 4. Run the application
-streamlit run app.py
+# 4. Run the application (demo mode — see Configuration below)
+LABVAULT_DEMO_MODE=true streamlit run app.py
 ```
 
 ### First Launch
 
 On first launch, LabVault will automatically:
 1. Create the SQLite database (`labvault.db`)
-2. Seed 4 default users (1 admin + 3 lab technicians)
+2. Seed users: the 4 demo accounts in demo mode, or a single `admin` in secure mode
 3. Seed 5 GxP test protocols based on USP standards
 4. Import ~100 real FDA drug recall records via the openFDA API
 5. Simulate scientifically accurate test results for each sample
 
-### Default Credentials
+### Configuration
+
+LabVault runs in one of two modes (see [ADR 0001](docs/adr/0001-deployment-modes.md)).
+Settings are read from environment variables or `.streamlit/secrets.toml`.
+
+| Setting | Purpose |
+|---|---|
+| `LABVAULT_DEMO_MODE=true` | Demo mode: seeds the public demo accounts below and shows their credentials on the login screen |
+| `LABVAULT_ADMIN_PASSWORD` | Secure mode (the default): password for the initial `admin` account, at least 12 characters. Used only when no users exist yet |
+
+With neither setting, the app stops with a configuration error and does not create any accounts.
+In secure mode it also refuses to start on a database that still contains demo passwords.
+
+### Demo Credentials (demo mode only)
 
 | Role | Username | Password |
 |---|---|---|
@@ -434,6 +447,13 @@ On first launch, LabVault will automatically:
 | Lab Technician | `kembly` | `lab2024` |
 | Lab Technician | `carlos` | `lab2024` |
 | Lab Technician | `maria` | `lab2024` |
+
+### Running Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
 
 ---
 
@@ -482,7 +502,7 @@ Every action in the system is immutably logged and displayed with color-coded ac
 ### Reports
 Export filtered data as professional PDF reports with OOS highlights or multi-sheet Excel workbooks for further analysis.
 
-> **Note**: To see the application in action, clone the repo and run `streamlit run app.py`. The system is fully self-contained and seeds its own data on first launch.
+> **Note**: To see the application in action, clone the repo and run `LABVAULT_DEMO_MODE=true streamlit run app.py`. The system is fully self-contained and seeds its own data on first launch.
 
 ---
 
