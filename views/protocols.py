@@ -5,8 +5,8 @@ Admins can create new ones; all users can browse existing protocols.
 """
 
 import streamlit as st
-from datetime import datetime
-from db import get_all_protocols, insert_protocol, log_action
+from db import get_all_protocols
+import services
 
 # The complete list of sample types we support — used both here and in sample_intake.
 # Keeping this in sync with what detect_sample_type() returns in seed.py matters
@@ -75,15 +75,11 @@ def show():
                 st.error("Protocol name is required.")
                 return
 
-            insert_protocol({
+            # One transaction: the protocol and its PROTOCOL_CREATED audit row.
+            services.create_protocol({
                 "name":        name,
                 "sample_type": sample_type,
                 "description": description,
                 "steps":       steps,        # raw newline-separated text, stored as-is
-                "created_by":  user["username"],
-                "created_at":  datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            })
-            # Log the creation so there's a record of who added this protocol and when
-            log_action(user["username"], "PROTOCOL_CREATED", "Protocols",
-                       name, f"New protocol: {name} for {sample_type}")
+            }, user["username"])
             st.success(f"✅ Protocol '{name}' created.")

@@ -3,11 +3,35 @@ pages/sample_tracking.py — View, filter, and update sample status
 """
 
 import streamlit as st
-from db import get_all_samples, update_sample_status, update_sample_assignment, get_lab_techs
+from db import get_all_samples, get_lab_techs
+import services
 from views.ui import esc, SIMULATED_LABEL
 
 
 STATUS_OPTIONS = ["Pending", "In Progress", "Completed", "Rejected"]
+
+
+def _form_keys(sample_id):
+    return [f"status_{sample_id}", f"assign_{sample_id}", f"version_{sample_id}"]
+
+
+def _request_reload(sample_id):
+    st.session_state[f"reload_{sample_id}"] = True
+
+
+def _form_version(s):
+    """
+    The version this session's edit form was initialised from. Streamlit
+    reruns the script on every click and re-reads the sample, so the fresh
+    row's version can't be used for the optimistic-concurrency check — the
+    form widgets still hold what the user first saw. Store that version next
+    to them and reset both together on reload.
+    """
+    sid = s["sample_id"]
+    if st.session_state.pop(f"reload_{sid}", False):
+        for key in _form_keys(sid):
+            st.session_state.pop(key, None)
+    return st.session_state.setdefault(f"version_{sid}", s["version"])
 
 
 def show():
@@ -88,6 +112,13 @@ def show():
 
             with col_actions:
                 st.markdown("**Update Sample**")
+                form_version = _form_version(s)
+                if form_version != s["version"]:
+                    st.warning("Someone else changed this sample after you opened it. "
+                               "The details on the left are current; reload the form "
+                               "before making changes.")
+                    st.button("🔄 Reload form", key=f"reload_btn_{s['sample_id']}",
+                              on_click=_request_reload, args=(s["sample_id"],))
 
                 # Status update
                 new_status = st.selectbox(
@@ -107,9 +138,17 @@ def show():
                     new_assignee = s["assigned_to"]
 
                 if st.button("💾 Save Changes", key=f"save_{s['sample_id']}", type="primary"):
-                    if new_status != s["status"]:
-                        update_sample_status(s["sample_id"], new_status, user["username"])
-                    if new_assignee != s["assigned_to"]:
-                        update_sample_assignment(s["sample_id"], new_assignee, user["username"])
-                    st.success("Updated!")
-                    st.rerun()
+                    # One transaction for both fields + their audit rows. The
+                    # version is the one this form was opened with: if someone
+                    # else saved in between, nothing is written.
+                    try:
+                        changed = services.update_sample(
+                            s["sample_id"], form_version, user["username"],
+                            status=new_status, assigned_to=new_assignee)
+                    except services.ServiceError as e:
+                        st.error(str(e))
+                    else:
+                        if changed:
+                            _request_reload(s["sample_id"])  # form adopts the new version
+                            st.rerun()
+                        st.info("No changes to save.")
