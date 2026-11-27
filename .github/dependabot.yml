@@ -1,0 +1,17 @@
+# Weekly update proposals; each one is a PR that CI tests (ADR 0010).
+# Dependabot understands `uv pip compile` lock files: it edits the .in ranges
+# if needed and regenerates the hashed locks.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      dev-tools:
+        patterns: ["pytest*", "ruff", "pip-audit", "uv"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

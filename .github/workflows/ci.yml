@@ -12,6 +12,8 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Every job installs from the hashed lock files (ADR 0010), so CI tests the
+# exact versions Streamlit Cloud deploys.
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -19,10 +21,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
           cache: pip
           cache-dependency-path: requirements-dev.txt
-      - run: pip install -r requirements-dev.txt
+      - run: pip install --require-hashes -r requirements-dev.txt
       - run: ruff check .
 
   test:
@@ -30,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # pandas>=3 requires Python 3.11+.
+        # pandas>=3 requires Python 3.11+; 3.12 is the pinned version.
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v7
@@ -39,8 +41,25 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: requirements-dev.txt
-      - run: pip install -r requirements-dev.txt
+      - run: pip install --require-hashes -r requirements-dev.txt
       - run: python -m pytest -q
+
+  lock-check:
+    # Fails if a .in file was edited without regenerating its lock.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install --require-hashes -r requirements-dev.txt
+      - run: |
+          uv pip compile -q --universal --generate-hashes --python-version 3.11 requirements.in -o requirements.txt
+          uv pip compile -q --universal --generate-hashes --python-version 3.11 requirements-dev.in -o requirements-dev.txt
+          git diff --exit-code -- requirements.txt requirements-dev.txt \
+            || { echo "::error::Lock files are out of date — regenerate them (see requirements.in)"; exit 1; }
 
   dependency-audit:
     runs-on: ubuntu-latest
@@ -48,7 +67,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
-      - run: pip install pip-audit
-      # Audits the runtime dependencies the app actually deploys with.
-      - run: pip-audit -r requirements.txt --progress-spinner off
+          python-version-file: .python-version
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install --require-hashes -r requirements-dev.txt
+      # Audits the exact runtime versions the app deploys with.
+      - run: pip-audit -r requirements.txt --require-hashes --progress-spinner off

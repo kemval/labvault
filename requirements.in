@@ -1,0 +1,9 @@
+# Runtime dependencies — edit THIS file, then regenerate the lock:
+#   uv pip compile --universal --generate-hashes --python-version 3.11 requirements.in -o requirements.txt
+# requirements.txt (the lock) is what Streamlit Cloud and CI install. See ADR 0010.
+streamlit>=1.32.0
+requests>=2.31.0
+pandas>=3.0.2        # requires Python 3.11+
+openpyxl>=3.1.0
+reportlab>=4.0.0
+jinja2>=3.0          # pandas Styler (coloured tables)
