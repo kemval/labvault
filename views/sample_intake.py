@@ -4,8 +4,8 @@ pages/sample_intake.py — Register new samples manually
 
 import streamlit as st
 from datetime import date
-from db import insert_sample, get_all_protocols, get_lab_techs, log_action
-import uuid
+from db import get_all_protocols, get_lab_techs
+import services
 
 
 def show():
@@ -49,11 +49,10 @@ def show():
             st.error("Product name and manufacturer are required.")
             return
 
-        sample_id = f"LV-{uuid.uuid4().hex[:8].upper()}"
         proto_id  = proto_options.get(proto_choice) if proto_choice != "None" else None
 
-        insert_sample({
-            "sample_id":         sample_id,
+        # One transaction: the sample and its SAMPLE_CREATED audit row.
+        sample_id = services.register_sample({
             "product_name":      product_name,
             "lot_number":        lot_number,
             "manufacturer":      manufacturer,
@@ -62,15 +61,10 @@ def show():
             "priority":          priority,
             "reason_for_recall": reason,
             "collection_date":   collection_date.strftime("%Y-%m-%d"),
-            "status":            "Pending",
             "assigned_to":       assigned_to,
             "protocol_id":       proto_id,
             "notes":             notes,
-            "source":            "Manual",
-        })
-
-        log_action(user["username"], "SAMPLE_CREATED", "Sample Intake",
-                   sample_id, f"Registered: {product_name} | {manufacturer}")
+        }, user["username"])
 
         st.success(f"✅ Sample **{sample_id}** registered successfully and assigned to **{assigned_to}**.")
         st.info(f"Priority: **{priority}** | Classification: **{recall_class}** | Status: **Pending**")

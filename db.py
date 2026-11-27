@@ -7,6 +7,8 @@ Database: SQLite (labvault.db, created automatically on first run)
 import sqlite3
 import hashlib
 from datetime import datetime
+from contextlib import contextmanager
+
 import streamlit as st
 
 # The database lives right next to the app — SQLite just needs a file path.
@@ -39,6 +41,34 @@ def get_conn():
     conn.execute("PRAGMA journal_mode = WAL")
 
     return conn
+
+
+@contextmanager
+def transaction():
+    """
+    One connection, one write transaction: commit on success, roll back on
+    any exception. BEGIN IMMEDIATE takes the write lock up front so reads
+    made inside the block (e.g. a version check) can't go stale before the
+    write. Use this for every multi-statement change, including its audit row.
+    """
+    conn = get_conn()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        yield conn
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _run(conn, fn):
+    """Run fn(conn) inside the caller's transaction, or in a new one."""
+    if conn is not None:
+        return fn(conn)
+    with transaction() as own:
+        return fn(own)
 
 
 # ─────────────────────────────────────────────
@@ -191,8 +221,14 @@ def _m001_simulated_flag(conn):
               f"simulator-generated test results as simulated (audit C4)."))
 
 
+def _m002_sample_version(conn):
+    """Audit H8: row version for optimistic concurrency on sample updates."""
+    conn.execute("ALTER TABLE samples ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+
+
 MIGRATIONS = [
     _m001_simulated_flag,
+    _m002_sample_version,
 ]
 
 
@@ -382,21 +418,27 @@ def get_lab_techs():
 # AUDIT TRAIL
 # ─────────────────────────────────────────────
 
-def log_action(user: str, action: str, module: str, target_id: str = "", detail: str = ""):
+def write_audit(conn, user: str, action: str, module: str,
+                target_id: str = "", detail: str = ""):
     """
-    Write a single audit record for any action that changes data.
-    Called after every insert/update — never skip this, it's what makes
-    the system traceable and GxP-compliant.
-    Also clears the audit trail cache so the Audit Trail page refreshes.
+    Insert one audit row on `conn` without committing, so it lands in the
+    same transaction as the change it describes. services.py uses this for
+    every data change; the caller clears caches after commit.
     """
-    conn = get_conn()
     conn.execute("""
         INSERT INTO audit_trail (timestamp, user, action, module, target_id, detail)
         VALUES (?, ?, ?, ?, ?, ?)
     """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user, action, module, target_id, detail))
-    conn.commit()
-    conn.close()
-    # Bust the audit cache immediately so the next page load shows this entry
+
+
+def log_action(user: str, action: str, module: str, target_id: str = "", detail: str = ""):
+    """
+    Record an event that changes no data (e.g. a report export) as its own
+    transaction. Data changes must go through services.py instead, so the
+    change and its audit row commit together.
+    """
+    with transaction() as conn:
+        write_audit(conn, user, action, module, target_id, detail)
     get_audit_trail.clear()
 
 
@@ -418,26 +460,29 @@ def get_audit_trail(limit: int = 200):
 # SAMPLES
 # ─────────────────────────────────────────────
 
-def insert_sample(data: dict):
+def insert_sample(data: dict, conn=None) -> bool:
     """
-    Insert a new sample row. INSERT OR IGNORE means duplicate sample_ids
-    (from re-importing the same FDA record) are silently skipped —
-    no errors, no duplicates, exactly what we want.
+    Insert a sample row; returns False if the sample_id already exists
+    (INSERT OR IGNORE). Pass `conn` to join the caller's transaction — the
+    caller then clears caches after commit. App code should use
+    services.register_sample, which also writes the audit row.
     """
-    conn = get_conn()
-    conn.execute("""
-        INSERT OR IGNORE INTO samples
-            (sample_id, product_name, lot_number, manufacturer, sample_type,
-             recall_class, priority, reason_for_recall, collection_date,
-             status, assigned_to, protocol_id, notes, source)
-        VALUES
-            (:sample_id, :product_name, :lot_number, :manufacturer, :sample_type,
-             :recall_class, :priority, :reason_for_recall, :collection_date,
-             :status, :assigned_to, :protocol_id, :notes, :source)
-    """, data)
-    conn.commit()
-    conn.close()
-    _clear_sample_cache()
+    def run(c):
+        return c.execute("""
+            INSERT OR IGNORE INTO samples
+                (sample_id, product_name, lot_number, manufacturer, sample_type,
+                 recall_class, priority, reason_for_recall, collection_date,
+                 status, assigned_to, protocol_id, notes, source)
+            VALUES
+                (:sample_id, :product_name, :lot_number, :manufacturer, :sample_type,
+                 :recall_class, :priority, :reason_for_recall, :collection_date,
+                 :status, :assigned_to, :protocol_id, :notes, :source)
+        """, data).rowcount == 1
+
+    inserted = _run(conn, run)
+    if conn is None:
+        _clear_sample_cache()
+    return inserted
 
 
 @st.cache_data(ttl=30)
@@ -485,38 +530,6 @@ def get_sample(sample_id: str):
     ).fetchone()
     conn.close()
     return dict(row) if row else None
-
-
-def update_sample_status(sample_id: str, new_status: str, user: str):
-    """
-    Update just the status column on a sample, then log the change
-    in the audit trail. The cache clear ensures the tracking page
-    reflects the new status immediately.
-    """
-    conn = get_conn()
-    conn.execute(
-        "UPDATE samples SET status = ? WHERE sample_id = ?",
-        (new_status, sample_id)
-    )
-    conn.commit()
-    conn.close()
-    log_action(user, "STATUS_UPDATED", "Sample Tracking",
-               sample_id, f"Status changed to {new_status}")
-    _clear_sample_cache()
-
-
-def update_sample_assignment(sample_id: str, assignee: str, user: str):
-    """Reassign a sample to a different lab tech and record who made the change."""
-    conn = get_conn()
-    conn.execute(
-        "UPDATE samples SET assigned_to = ? WHERE sample_id = ?",
-        (assignee, sample_id)
-    )
-    conn.commit()
-    conn.close()
-    log_action(user, "SAMPLE_ASSIGNED", "Sample Tracking",
-               sample_id, f"Assigned to {assignee}")
-    _clear_sample_cache()
 
 
 @st.cache_data(ttl=30)
@@ -571,23 +584,26 @@ def sample_exists():
 # TEST RESULTS
 # ─────────────────────────────────────────────
 
-def insert_test_result(data: dict):
+def insert_test_result(data: dict, conn=None) -> int:
     """
-    Insert a new test result row and clear the result cache.
-    No IGNORE here — duplicate results are allowed (a sample can be re-tested).
+    Insert a test result row; returns its id. No IGNORE — a sample can be
+    re-tested. Pass `conn` to join the caller's transaction. App code should
+    use services.record_result, which also writes the audit row.
     """
-    conn = get_conn()
-    conn.execute("""
-        INSERT INTO test_results
-            (sample_id, test_name, result_value, result_unit,
-             spec_min, spec_max, status, tested_by, tested_at, notes)
-        VALUES
-            (:sample_id, :test_name, :result_value, :result_unit,
-             :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes)
-    """, data)
-    conn.commit()
-    conn.close()
-    _clear_result_cache()
+    def run(c):
+        return c.execute("""
+            INSERT INTO test_results
+                (sample_id, test_name, result_value, result_unit,
+                 spec_min, spec_max, status, tested_by, tested_at, notes)
+            VALUES
+                (:sample_id, :test_name, :result_value, :result_unit,
+                 :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes)
+        """, data).lastrowid
+
+    result_id = _run(conn, run)
+    if conn is None:
+        _clear_result_cache()
+    return result_id
 
 
 @st.cache_data(ttl=30)
@@ -653,18 +669,23 @@ def count_oos_results():
 # PROTOCOLS
 # ─────────────────────────────────────────────
 
-def insert_protocol(data: dict):
-    """Insert a new protocol and immediately clear the protocol cache."""
-    conn = get_conn()
-    conn.execute("""
-        INSERT INTO protocols
-            (name, sample_type, description, steps, created_by, created_at)
-        VALUES
-            (:name, :sample_type, :description, :steps, :created_by, :created_at)
-    """, data)
-    conn.commit()
-    conn.close()
-    get_all_protocols.clear()
+def insert_protocol(data: dict, conn=None) -> int:
+    """
+    Insert a protocol; returns its id. Pass `conn` to join the caller's
+    transaction. App code should use services.create_protocol.
+    """
+    def run(c):
+        return c.execute("""
+            INSERT INTO protocols
+                (name, sample_type, description, steps, created_by, created_at)
+            VALUES
+                (:name, :sample_type, :description, :steps, :created_by, :created_at)
+        """, data).lastrowid
+
+    protocol_id = _run(conn, run)
+    if conn is None:
+        get_all_protocols.clear()
+    return protocol_id
 
 
 @st.cache_data(ttl=300)

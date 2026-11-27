@@ -5,7 +5,8 @@ pages/test_results.py — Log and view test results, OOS flagging
 import streamlit as st
 import pandas as pd
 from datetime import date
-from db import get_all_samples, get_results_for_sample, insert_test_result, log_action
+from db import get_all_samples, get_results_for_sample
+import services
 from views.ui import simulated_text, SIMULATED_LABEL
 
 
@@ -151,21 +152,23 @@ def show():
                 hi = "—" if spec_max is None else spec_max
                 spec_text = f"spec {lo} to {hi}"
 
-            insert_test_result({
-                "sample_id":    sample_id,
-                "test_name":    test_name,
-                "result_value": result_value,
-                "result_unit":  result_unit,
-                "spec_min":     spec_min,
-                "spec_max":     spec_max,
-                "status":       status,
-                "tested_by":    user["username"],
-                "tested_at":    tested_at.strftime("%Y-%m-%d"),
-                "notes":        notes,
-            })
-
-            log_action(user["username"], "RESULT_LOGGED", "Test Results",
-                       sample_id, f"{test_name}: {result_text} ({spec_text}) → {status}")
+            # One transaction: the result and its RESULT_LOGGED audit row.
+            try:
+                services.record_result({
+                    "sample_id":    sample_id,
+                    "test_name":    test_name,
+                    "result_value": result_value,
+                    "result_unit":  result_unit,
+                    "spec_min":     spec_min,
+                    "spec_max":     spec_max,
+                    "status":       status,
+                    "tested_at":    tested_at.strftime("%Y-%m-%d"),
+                    "notes":        notes,
+                }, user["username"],
+                    audit_detail=f"{test_name}: {result_text} ({spec_text}) → {status}")
+            except services.ServiceError as e:
+                st.error(str(e))
+                return
 
             if status == "Fail (OOS)":
                 st.error(f"🚨 OOS RESULT: {test_name} = {result_text} — Outside specification. Deviation review required.")
