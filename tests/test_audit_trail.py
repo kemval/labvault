@@ -42,9 +42,9 @@ def test_migration_4_adds_columns_and_triggers(lab_db):
 
 def test_change_records_old_value_new_value_and_reason(lab_db):
     sample_id = services.register_sample(BASE, "admin")
-    services.update_sample(sample_id, 1, "carlos", status="In Progress", assigned_to=None,
+    services.update_sample(sample_id, 1, "admin", status="In Progress", assigned_to=None,
                            reason="  Started HPLC run  ")
-    services.update_sample(sample_id, 2, "carlos", assigned_to="maria", reason="Workload")
+    services.update_sample(sample_id, 2, "admin", assigned_to="maria", reason="Workload")
     status = audit("STATUS_UPDATED")
     assign = audit("SAMPLE_ASSIGNED")
     assert [(a["old_value"], a["new_value"], a["reason"]) for a in status] == \
@@ -58,7 +58,7 @@ def test_change_records_old_value_new_value_and_reason(lab_db):
 def test_change_without_reason_is_refused_and_writes_nothing(lab_db, reason):
     sample_id = services.register_sample(BASE, "admin")
     with pytest.raises(services.ServiceError, match="reason"):
-        services.update_sample(sample_id, 1, "carlos", status="Rejected", reason=reason)
+        services.update_sample(sample_id, 1, "admin", status="Rejected", reason=reason)
     assert rows("SELECT status, version FROM samples") == [{"status": "Pending", "version": 1}]
     assert audit("STATUS_UPDATED") == []
 

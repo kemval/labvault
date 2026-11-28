@@ -79,7 +79,7 @@ def test_update_changes_both_fields_atomically_with_old_and_new_values(sample_id
 
 def test_update_rolls_back_when_audit_fails(sample_id, failing_audit):
     with pytest.raises(RuntimeError):
-        services.update_sample(sample_id, 1, "admin", status="Completed", reason="test")
+        services.update_sample(sample_id, 1, "admin", status="In Progress", reason="test")
     [s] = rows("SELECT * FROM samples")
     assert (s["status"], s["version"]) == ("Pending", 1)
 
@@ -126,14 +126,25 @@ RESULT = {"test_name": "pH", "result_value": 6.0, "result_unit": "pH", "spec_min
           "spec_max": 7.5, "status": "Pass", "tested_at": "2026-01-02", "notes": ""}
 
 
+def start(sample_id):
+    """Results can only be logged on an In Progress sample (ADR 0011)."""
+    services.update_sample(sample_id, 1, "kembly", status="In Progress", reason="start")
+
+
 def test_record_result_writes_result_and_audit(sample_id):
+    start(sample_id)
     services.record_result({**RESULT, "sample_id": sample_id}, "kembly", "pH: 6.0 → Pass")
     [r] = rows("SELECT * FROM test_results")
     assert (r["tested_by"], r["status"]) == ("kembly", "Pass")
     assert audit("RESULT_LOGGED")[0]["detail"] == "pH: 6.0 → Pass"
 
 
-def test_record_result_rolls_back_when_audit_fails(sample_id, failing_audit):
+def test_record_result_rolls_back_when_audit_fails(sample_id, monkeypatch):
+    start(sample_id)
+    # failing_audit can't be used here: start() itself writes an audit row.
+    def boom(*a, **k):
+        raise RuntimeError("audit write failed")
+    monkeypatch.setattr(audit_repo, "write_audit", boom)
     with pytest.raises(RuntimeError):
         services.record_result({**RESULT, "sample_id": sample_id}, "kembly", "x")
     assert rows("SELECT * FROM test_results") == []

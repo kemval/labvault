@@ -3,7 +3,7 @@ pages/test_results.py — Log and view test results, OOS flagging
 """
 
 import streamlit as st
-from domain import RESULT_OOS, RESULT_PASS, RESULT_STATUSES
+from domain import RESULT_OOS, RESULT_PASS, RESULT_STATUSES, result_entry_error
 import pandas as pd
 from datetime import date
 from db import get_all_samples, get_results_for_sample
@@ -83,6 +83,88 @@ def evaluate_result(test_name, value, spec_min, spec_max, outcome):
     return determine_status(value, spec_min, spec_max), []
 
 
+def _log_result_tab(user, samples):
+    # Only In Progress samples assigned to this user (any, for admins);
+    # services.record_result enforces the same rule (ADR 0011).
+    sample_options = {
+        f"{s['sample_id']} — {s['product_name'][:50]}"
+        + (f" ({SIMULATED_LABEL})" if s.get("is_simulated") else ""): s["sample_id"]
+        for s in samples if result_entry_error(user, s) is None}
+    if not sample_options:
+        st.info("No samples are open for results. Results can be logged on "
+                "**In Progress** samples assigned to you — start one in Sample Tracking.")
+        return
+
+    with st.form("result_form", clear_on_submit=True):
+        st.markdown("#### New Test Result Entry")
+
+        selected_label = st.selectbox("Select Sample *", list(sample_options.keys()))
+        sample_id      = sample_options[selected_label]
+
+        # Blank fields mean "not entered" (None) — 0 is a valid value or limit.
+        c1, c2 = st.columns(2)
+        with c1:
+            test_name    = st.selectbox("Test Name *", TEST_TYPES)
+            result_value = st.number_input("Result Value", value=None, format="%.2f",
+                                           placeholder="Required for numeric tests")
+            result_unit  = st.selectbox("Unit", UNIT_OPTIONS)
+            outcome      = st.selectbox("Qualitative Outcome", OUTCOME_OPTIONS,
+                                        help="Pass/fail tests only (e.g. Label Review). "
+                                             "Leave at “—” for numeric results.")
+        with c2:
+            spec_min  = st.number_input("Spec Minimum", value=None, format="%.2f",
+                                        placeholder="Blank = no lower limit")
+            spec_max  = st.number_input("Spec Maximum", value=None, format="%.2f",
+                                        placeholder="Blank = no upper limit")
+            tested_at = st.date_input("Test Date", value=date.today())
+
+        notes = st.text_area("Notes / Observations", placeholder="e.g. Sample appeared discolored prior to testing...")
+
+        submitted = st.form_submit_button("Submit Result", type="primary", use_container_width=True)
+
+    if submitted:
+        outcome_value = None if outcome == "—" else outcome
+        status, errors = evaluate_result(test_name, result_value, spec_min, spec_max,
+                                         outcome_value)
+        if errors:
+            for err in errors:
+                st.error(err)
+            st.warning("Nothing was saved.")
+            return
+
+        if result_value is None:
+            result_text, result_unit = outcome_value, "N/A"
+            spec_text = "pass/fail"
+        else:
+            result_text = f"{result_value} {result_unit}"
+            lo = "—" if spec_min is None else spec_min
+            hi = "—" if spec_max is None else spec_max
+            spec_text = f"spec {lo} to {hi}"
+
+        # One transaction: the result and its RESULT_LOGGED audit row.
+        try:
+            services.record_result({
+                "sample_id":    sample_id,
+                "test_name":    test_name,
+                "result_value": result_value,
+                "result_unit":  result_unit,
+                "spec_min":     spec_min,
+                "spec_max":     spec_max,
+                "status":       status,
+                "tested_at":    tested_at.strftime("%Y-%m-%d"),
+                "notes":        notes,
+            }, user["username"],
+                audit_detail=f"{test_name}: {result_text} ({spec_text}) → {status}")
+        except services.ServiceError as e:
+            st.error(str(e))
+            return
+
+        if status == RESULT_OOS:
+            st.error(f"🚨 OOS RESULT: {test_name} = {result_text} — Outside specification. Deviation review required.")
+        else:
+            st.success(f"✅ Result logged: {test_name} = {result_text} — **{status}**")
+
+
 def show():
     page_header("📋 Test Results", "Log laboratory test results and review Out-of-Spec findings")
 
@@ -97,79 +179,7 @@ def show():
 
     # ── LOG NEW RESULT ────────────────────────────────────────
     with tab_log:
-        sample_options = {
-            f"{s['sample_id']} — {s['product_name'][:50]}"
-            + (f" ({SIMULATED_LABEL})" if s.get("is_simulated") else ""): s["sample_id"]
-            for s in samples}
-
-        with st.form("result_form", clear_on_submit=True):
-            st.markdown("#### New Test Result Entry")
-
-            selected_label = st.selectbox("Select Sample *", list(sample_options.keys()))
-            sample_id      = sample_options[selected_label]
-
-            # Blank fields mean "not entered" (None) — 0 is a valid value or limit.
-            c1, c2 = st.columns(2)
-            with c1:
-                test_name    = st.selectbox("Test Name *", TEST_TYPES)
-                result_value = st.number_input("Result Value", value=None, format="%.2f",
-                                               placeholder="Required for numeric tests")
-                result_unit  = st.selectbox("Unit", UNIT_OPTIONS)
-                outcome      = st.selectbox("Qualitative Outcome", OUTCOME_OPTIONS,
-                                            help="Pass/fail tests only (e.g. Label Review). "
-                                                 "Leave at “—” for numeric results.")
-            with c2:
-                spec_min  = st.number_input("Spec Minimum", value=None, format="%.2f",
-                                            placeholder="Blank = no lower limit")
-                spec_max  = st.number_input("Spec Maximum", value=None, format="%.2f",
-                                            placeholder="Blank = no upper limit")
-                tested_at = st.date_input("Test Date", value=date.today())
-
-            notes = st.text_area("Notes / Observations", placeholder="e.g. Sample appeared discolored prior to testing...")
-
-            submitted = st.form_submit_button("Submit Result", type="primary", use_container_width=True)
-
-        if submitted:
-            outcome_value = None if outcome == "—" else outcome
-            status, errors = evaluate_result(test_name, result_value, spec_min, spec_max,
-                                             outcome_value)
-            if errors:
-                for err in errors:
-                    st.error(err)
-                st.warning("Nothing was saved.")
-                return
-
-            if result_value is None:
-                result_text, result_unit = outcome_value, "N/A"
-                spec_text = "pass/fail"
-            else:
-                result_text = f"{result_value} {result_unit}"
-                lo = "—" if spec_min is None else spec_min
-                hi = "—" if spec_max is None else spec_max
-                spec_text = f"spec {lo} to {hi}"
-
-            # One transaction: the result and its RESULT_LOGGED audit row.
-            try:
-                services.record_result({
-                    "sample_id":    sample_id,
-                    "test_name":    test_name,
-                    "result_value": result_value,
-                    "result_unit":  result_unit,
-                    "spec_min":     spec_min,
-                    "spec_max":     spec_max,
-                    "status":       status,
-                    "tested_at":    tested_at.strftime("%Y-%m-%d"),
-                    "notes":        notes,
-                }, user["username"],
-                    audit_detail=f"{test_name}: {result_text} ({spec_text}) → {status}")
-            except services.ServiceError as e:
-                st.error(str(e))
-                return
-
-            if status == RESULT_OOS:
-                st.error(f"🚨 OOS RESULT: {test_name} = {result_text} — Outside specification. Deviation review required.")
-            else:
-                st.success(f"✅ Result logged: {test_name} = {result_text} — **{status}**")
+        _log_result_tab(user, samples)
 
     # ── VIEW ALL RESULTS ──────────────────────────────────────
     with tab_view:

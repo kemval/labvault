@@ -11,6 +11,7 @@ See docs/adr/0005-service-layer.md.
 import uuid
 
 import db  # cache invalidation only
+import domain
 from domain import ROLE_SYSTEM, SOURCE_MANUAL, STATUS_PENDING, SYSTEM_USER
 import seed
 from repo import audit, core, fda_import, protocols, results, samples, users
@@ -26,6 +27,19 @@ class NotFoundError(ServiceError):
 
 class ConcurrentUpdateError(ServiceError):
     """The record changed since the caller read it; reload and retry."""
+
+
+class PermissionDeniedError(ServiceError):
+    """The user's role or assignment doesn't allow this action (ADR 0011)."""
+
+
+def _actor(conn, username: str) -> dict:
+    """The acting user as stored — the role comes from the database, never the caller."""
+    row = conn.execute("SELECT username, role FROM users WHERE username = ?",
+                       (username,)).fetchone()
+    if row is None or row["role"] == ROLE_SYSTEM:
+        raise PermissionDeniedError(f"{username} is not an account that can change data.")
+    return dict(row)
 
 
 _ID_ATTEMPTS = 5
@@ -83,9 +97,12 @@ def update_sample(sample_id: str, expected_version: int, user: str,
 
 def _update_sample(sample_id, expected_version, user, status, assigned_to, reason) -> bool:
     with core.transaction() as conn:
-        row = conn.execute(
-            "SELECT status, assigned_to, version FROM samples WHERE sample_id = ?",
-            (sample_id,)).fetchone()
+        actor = _actor(conn, user)
+        row = conn.execute("""
+            SELECT sample_id, status, assigned_to, version,
+                   (SELECT COUNT(*) FROM test_results t
+                    WHERE t.sample_id = samples.sample_id) AS result_count
+            FROM samples WHERE sample_id = ?""", (sample_id,)).fetchone()
         if row is None:
             raise NotFoundError(f"Sample {sample_id} no longer exists.")
         if row["version"] != expected_version:
@@ -105,6 +122,12 @@ def _update_sample(sample_id, expected_version, user, status, assigned_to, reaso
                             f"to {new_assignee or 'Unassigned'}"))
         if not changes:
             return False
+        assignee = conn.execute("SELECT role FROM users WHERE username = ?",
+                                (new_assignee,)).fetchone() if new_assignee else None
+        denied = domain.change_error(actor, dict(row), new_status, new_assignee,
+                                     assignee["role"] if assignee else None)
+        if denied:
+            raise PermissionDeniedError(denied)
         if not reason:
             raise ServiceError("Enter a reason for the change — it is recorded in the audit trail.")
 
@@ -126,11 +149,19 @@ def _update_sample(sample_id, expected_version, user, status, assigned_to, reaso
 # ─────────────────────────────────────────────
 
 def record_result(data: dict, user: str, audit_detail: str) -> int:
-    """Store a validated test result and its audit row together; returns its id."""
+    """
+    Store a validated test result and its audit row together; returns its id.
+    Only the assignee or an admin, and only while the sample is In Progress.
+    """
     with core.transaction() as conn:
-        if conn.execute("SELECT 1 FROM samples WHERE sample_id = ?",
-                        (data["sample_id"],)).fetchone() is None:
+        actor = _actor(conn, user)
+        sample = conn.execute("SELECT status, assigned_to FROM samples WHERE sample_id = ?",
+                              (data["sample_id"],)).fetchone()
+        if sample is None:
             raise NotFoundError(f"Sample {data['sample_id']} no longer exists.")
+        denied = domain.result_entry_error(actor, dict(sample))
+        if denied:
+            raise PermissionDeniedError(denied)
         result_id = results.insert_test_result({**data, "tested_by": user}, conn=conn)
         audit.write_audit(conn, user, "RESULT_LOGGED", "Test Results",
                        data["sample_id"], audit_detail)
