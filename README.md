@@ -187,12 +187,14 @@ I approached this project as if I were building an internal tool for a real phar
 ### 3. 🔬 Sample Tracking
 - Filterable sample list by status, priority, and free-text search
 - Expandable sample detail cards with full metadata
-- Inline status updates (Pending → In Progress → Completed / Rejected)
-- Analyst reassignment capability
+- Controlled status changes: Pending → In Progress → Completed (needs ≥ 1 result), or → Rejected;
+  only allowed next steps are offered, and every change needs a reason
+- Only the assigned lab tech or an admin can change a sample; techs can claim unassigned samples;
+  reassignment and reopening a Completed/Rejected sample are admin-only
 - Color-coded priority indicators (red = Critical, orange = Major, green = Minor)
 
 ### 4. 📋 Test Result Management
-- **New result entry**: Select sample, choose test type, enter result value, define spec limits
+- **New result entry**: Select one of your In Progress samples (any, for admins), choose test type, enter result value, define spec limits
 - **Automatic OOS detection**: Results outside `spec_min`–`spec_max` are flagged as `Fail (OOS)`
 - **Result viewer**: Filterable table with color-coded Pass/Fail styling
 - **10 pre-defined test types**: Potency, Dissolution, pH, Sterility, Particulates, Hardness, Friability, Disintegration, Water Content, Label Review

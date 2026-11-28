@@ -34,15 +34,18 @@ def all_samples(status_filter=None):
     Fetch all samples, optionally filtered by status.
     The index on status makes the filtered query very fast even with many rows.
     """
+    # result_count lets the views offer "Completed" only when it's allowed.
+    select = """
+        SELECT samples.*,
+               (SELECT COUNT(*) FROM test_results t
+                WHERE t.sample_id = samples.sample_id) AS result_count
+        FROM samples"""
     conn = get_conn()
     if status_filter and status_filter != "All":
-        rows = conn.execute(
-            "SELECT * FROM samples WHERE status = ? ORDER BY id DESC", (status_filter,)
-        ).fetchall()
+        rows = conn.execute(f"{select} WHERE status = ? ORDER BY id DESC",
+                            (status_filter,)).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT * FROM samples ORDER BY id DESC"
-        ).fetchall()
+        rows = conn.execute(f"{select} ORDER BY id DESC").fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

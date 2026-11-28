@@ -4,7 +4,7 @@ import pytest
 import db
 import services
 from test_app_login import login, run_app
-from test_services import BASE, audit, rows
+from test_services import BASE, RESULT, audit, rows
 
 
 @pytest.fixture
@@ -37,34 +37,36 @@ def test_save_updates_sample_and_audit(tracking):
 def test_concurrent_edit_is_rejected_and_other_users_change_kept(tracking):
     at, sample_id = tracking
     # Someone else saves after this page was rendered (e.g. in another process).
-    services.update_sample(sample_id, 1, "carlos", status="Rejected", reason="test")
+    services.update_sample(sample_id, 1, "admin", status="Rejected", reason="test")
     db.get_all_samples.clear()
 
-    at = save(at, sample_id, "Completed")
+    at = save(at, sample_id, "In Progress")
 
     assert any("changed by someone else" in e.value for e in at.error)
     assert any("Someone else changed this sample" in w.value for w in at.warning)
     assert rows("SELECT status, version FROM samples") == [{"status": "Rejected", "version": 2}]
-    assert [a["user"] for a in audit("STATUS_UPDATED")] == ["carlos"]
+    assert [a["user"] for a in audit("STATUS_UPDATED")] == ["admin"]
 
 
 def test_reload_adopts_current_values_then_saves(tracking):
     at, sample_id = tracking
-    services.update_sample(sample_id, 1, "carlos", status="Rejected", reason="test")
+    services.update_sample(sample_id, 1, "admin", status="In Progress", reason="test")
     db.get_all_samples.clear()
     at.run()
 
     at.button(key=f"reload_btn_{sample_id}").click().run()
-    assert at.selectbox(key=f"status_{sample_id}").value == "Rejected"
+    assert at.selectbox(key=f"status_{sample_id}").value == "In Progress"
     assert not any("Someone else changed" in w.value for w in at.warning)
 
-    save(at, sample_id, "In Progress")
-    assert rows("SELECT status, version FROM samples") == [{"status": "In Progress", "version": 3}]
+    save(at, sample_id, "Rejected")
+    assert rows("SELECT status, version FROM samples") == [{"status": "Rejected", "version": 3}]
 
 
 def test_consecutive_saves_by_same_user_both_succeed(tracking):
     at, sample_id = tracking
     save(at, sample_id, "In Progress")
+    services.record_result({**RESULT, "sample_id": sample_id}, "kembly", "logged")  # needed to complete
+    at.run()
     save(at, sample_id, "Completed")
     assert rows("SELECT status, version FROM samples") == [{"status": "Completed", "version": 3}]
     assert not at.error

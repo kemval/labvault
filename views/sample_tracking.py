@@ -3,13 +3,12 @@ pages/sample_tracking.py — View, filter, and update sample status
 """
 
 import streamlit as st
-from domain import PRIORITIES, PRIORITY_CRITICAL, PRIORITY_MAJOR, PRIORITY_MINOR, SAMPLE_STATUSES
+from domain import PRIORITIES, PRIORITY_CRITICAL, PRIORITY_MAJOR, PRIORITY_MINOR, SAMPLE_STATUSES, assignee_options, may_edit, status_options
 from db import get_all_samples, get_lab_techs
 import services
 from views.ui import esc, SIMULATED_LABEL, UNASSIGNED, page_header
 
 
-STATUS_OPTIONS = list(SAMPLE_STATUSES)
 
 
 def _form_keys(sample_id):
@@ -45,7 +44,7 @@ def show():
     # ── FILTERS ──────────────────────────────────────────────
     col1, col2, col3 = st.columns(3)
     with col1:
-        status_filter = st.selectbox("Filter by Status", ["All"] + STATUS_OPTIONS)
+        status_filter = st.selectbox("Filter by Status", ["All", *SAMPLE_STATUSES])
     with col2:
         priority_filter = st.selectbox("Filter by Priority", ["All", *PRIORITIES])
     with col3:
@@ -109,6 +108,12 @@ def show():
 
             with col_actions:
                 st.markdown("**Update Sample**")
+                if not may_edit(user, s):
+                    # Read-only: the rules (domain.py, ADR 0011) are enforced by
+                    # services.update_sample too — this just doesn't offer them.
+                    st.caption(f"Assigned to **{s['assigned_to']}** — only the assignee "
+                               "or an admin can change this sample.")
+                    continue
                 form_version = _form_version(s)
                 if form_version != s["version"]:
                     st.warning("Someone else changed this sample after you opened it. "
@@ -117,26 +122,20 @@ def show():
                     st.button("🔄 Reload form", key=f"reload_btn_{s['sample_id']}",
                               on_click=_request_reload, args=(s["sample_id"],))
 
-                # Status update
+                # Only the transitions this user may make are offered.
                 new_status = st.selectbox(
-                    "Status", STATUS_OPTIONS,
-                    index=STATUS_OPTIONS.index(s["status"]),
-                    key=f"status_{s['sample_id']}"
-                )
+                    "Status", status_options(user, s), index=0,
+                    key=f"status_{s['sample_id']}",
+                    help="Allowed next steps for your role. Completing needs at least one "
+                         "recorded result; reopening is admin-only.")
 
-                # Reassign
-                # An unassigned sample offers "Unassigned" so saving a status
-                # change doesn't silently assign it to the first tech.
-                options = techs if s["assigned_to"] else [UNASSIGNED] + techs
-                if options:
-                    choice = st.selectbox(
-                        "Assigned To", options,
-                        index=options.index(s["assigned_to"]) if s["assigned_to"] in options else 0,
-                        key=f"assign_{s['sample_id']}"
-                    )
-                    new_assignee = None if choice == UNASSIGNED else choice
-                else:
-                    new_assignee = s["assigned_to"]
+                # Admins assign any lab tech; a tech can only claim an unassigned sample.
+                names = [UNASSIGNED if a is None else a
+                         for a in assignee_options(user, s, techs)]
+                choice = st.selectbox("Assigned To", names, index=0,
+                                      key=f"assign_{s['sample_id']}",
+                                      disabled=len(names) == 1)
+                new_assignee = None if choice == UNASSIGNED else choice
 
                 reason = st.text_input(
                     "Reason for change *", key=f"reason_{s['sample_id']}",
