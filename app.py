@@ -4,7 +4,6 @@ Handles login, session state, navigation, and first-run database seeding.
 Run with: streamlit run app.py
 """
 
-import importlib
 import time
 
 import streamlit as st
@@ -17,6 +16,7 @@ from repo.specifications import seed_specifications
 from repo.schema import init_db
 from repo.users import DEMO_USERS, seed_users, session_account
 import services
+from views.navigation import pages_for
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG — must be first Streamlit call
@@ -41,17 +41,9 @@ st.set_page_config(
 # default theme too hard.
 st.markdown("""
 <style>
-    /* Sidebar — deep navy background so it feels like a proper app, not a prototype */
-    [data-testid="stSidebar"] {
-        background-color: #0f2942;
-    }
-    [data-testid="stSidebar"] * {
-        color: #e8f0fe !important;
-    }
-    [data-testid="stSidebar"] .stRadio label {
-        font-size: 15px;
-        padding: 6px 0;
-    }
+    /* Sidebar colours come from .streamlit/config.toml ([theme.sidebar]), not
+       CSS: an override of every element also recoloured alerts and focus
+       rings (audit U5/U6). */
 
     /* Top header bar — gradient from dark navy to a slightly lighter blue.
        The 90deg angle gives it a clean left-to-right sweep. */
@@ -71,7 +63,9 @@ st.markdown("""
         font-weight: 700;
         letter-spacing: 1px;
     }
-    .lv-header span {
+    /* A class, not ".lv-header span": Streamlit wraps heading text in a span,
+       which that selector also shrank and dimmed. */
+    .lv-header .lv-subtitle {
         font-size: 16px;
         opacity: 0.75;   /* subtle — it's a subtitle, not a headline */
     }
@@ -96,16 +90,16 @@ st.markdown("""
         font-size: 12px;
         font-weight: 600;
     }
-    /* Each badge pair uses a very light background with a saturated text color —
-       high contrast without being visually overwhelming */
-    .badge-pending    { background:#fff3e0; color:#e65100; }
+    /* Each badge pair uses a very light background with a saturated text color;
+       every pair is at least 4.5:1 (WCAG AA), checked by tests/test_accessibility.py */
+    .badge-pending    { background:#fff3e0; color:#bf360c; }
     .badge-progress   { background:#e3f2fd; color:#1565c0; }
     .badge-completed  { background:#e8f5e9; color:#2e7d32; }
     .badge-rejected   { background:#fce4ec; color:#c62828; }
     .badge-pass       { background:#e8f5e9; color:#2e7d32; }
     .badge-fail       { background:#fce4ec; color:#c62828; }
     .badge-critical   { background:#fce4ec; color:#c62828; }
-    .badge-major      { background:#fff3e0; color:#e65100; }
+    .badge-major      { background:#fff3e0; color:#bf360c; }
     .badge-minor      { background:#e8f5e9; color:#2e7d32; }
     .badge-sim        { background:#ede7f6; color:#4527a0; }  /* demo data marker */
 
@@ -196,8 +190,6 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "user" not in st.session_state:
     st.session_state.user = None
-if "page" not in st.session_state:
-    st.session_state.page = "Dashboard"
 if "auto_import_attempted" not in st.session_state:
     # The first-login FDA auto-import runs at most once per session —
     # success or failure — so a down API can't block every rerun.
@@ -214,7 +206,7 @@ def show_login():
     # the same level of control for this kind of centered card design.
     st.markdown("""
         <div class="login-container">
-            <div class="login-logo">🧪</div>
+            <div class="login-logo" aria-hidden="true">🧪</div>
             <div class="login-title">LabVault</div>
             <div class="login-subtitle">
                 Pharmaceutical Lab Management System<br>
@@ -233,11 +225,16 @@ def show_login():
         if st.session_state.pop("account_disabled", False):
             st.warning("You were signed out because your account was disabled. "
                        "Contact an administrator.")
-        st.markdown("#### Sign in to your account")
-        username = st.text_input("Username", placeholder="e.g. admin")
-        password = st.text_input("Password", type="password", placeholder="••••••••")
+        # A form, so pressing Enter in either field signs in (audit U1).
+        with st.form("login"):
+            st.markdown("#### Sign in to your account")
+            username = st.text_input("Username", placeholder="e.g. admin",
+                                     autocomplete="username")
+            password = st.text_input("Password", type="password", placeholder="••••••••",
+                                     autocomplete="current-password")
+            submitted = st.form_submit_button("Sign In", width="stretch", type="primary")
 
-        if st.button("Sign In", use_container_width=True, type="primary"):
+        if submitted:
             # sign_in() checks the hashed password and audits the attempt —
             # returns a user dict on success, None on failure.
             user = services.sign_in(username, password)
@@ -268,39 +265,14 @@ def show_login():
 # SIDEBAR NAVIGATION
 # ─────────────────────────────────────────────
 
-# Navigation: (sidebar label, page name, view module, admin only).
-# The single source for both the sidebar and route().
-PAGES = [
-    ("📊  Dashboard",       "Dashboard",       "views.dashboard",       False),
-    ("🧫  Sample Intake",   "Sample Intake",   "views.sample_intake",   False),
-    ("🔬  Sample Tracking", "Sample Tracking", "views.sample_tracking", False),
-    ("📋  Test Results",    "Test Results",    "views.test_results",    False),
-    ("🔎  OOS Investigations", "OOS Investigations", "views.investigations", False),
-    ("📄  Protocols",       "Protocols",       "views.protocols",       False),
-    ("📏  Specifications",  "Specifications",  "views.specifications",  False),
-    ("📈  Reports",         "Reports",         "views.reports",         False),
-    ("🕵️  Audit Trail",     "Audit Trail",     "views.audit_trail",     False),
-    ("⚙️  Admin",           "Admin",           "views.admin",           True),
-    ("🔑  My Account",      "My Account",      "views.account",         False),
-]
-
-
 def show_sidebar():
     user = st.session_state.user
     role = user["role"]
 
     with st.sidebar:
-        st.markdown("### 🧪 LabVault")
+        st.markdown("### LabVault")
         # Show the username and role — replace underscores so "lab_tech" reads as "Lab Tech"
         st.markdown(f"**{user['username']}** · *{role.replace('_', ' ').title()}*")
-        st.markdown("---")
-
-        # Admin-only pages are hidden from lab techs (each view re-checks the role).
-        pages = {label: name for label, name, _, admin_only in PAGES
-                 if role == ROLE_ADMIN or not admin_only}
-        choice = st.radio("Navigation", list(pages), label_visibility="collapsed")
-        st.session_state.page = pages[choice]
-
         st.markdown("---")
 
         # FDA data import — only admins should be able to trigger a bulk import
@@ -309,7 +281,7 @@ def show_sidebar():
             if not sample_exists():
                 # Let the admin know the DB is empty so they're not confused
                 st.warning("No samples yet. Import FDA data.")
-            if st.button("🔄 Import FDA Data", use_container_width=True):
+            if st.button("🔄 Import FDA Data", width="stretch"):
                 with st.spinner("Fetching real FDA recall records..."):
                     result = services.import_fda(limit=100, user=user["username"])
                 if result["success"]:
@@ -328,13 +300,14 @@ def show_sidebar():
 # PAGE ROUTER
 # ─────────────────────────────────────────────
 
-def route():
+def navigation():
     """
-    Load the view for session_state.page. Views are imported lazily, so only
-    the page the user navigates to is loaded.
+    Register the pages this user may open (st.navigation draws them in the
+    sidebar, each with its own URL) and return the selected one.
     """
-    module = next(m for _, name, m, _ in PAGES if name == st.session_state.page)
-    importlib.import_module(module).show()
+    pages = [st.Page(path, title=title, icon=icon, default=(i == 0))
+             for i, (title, path, icon, _) in enumerate(pages_for(st.session_state.user["role"]))]
+    return st.navigation(pages)
 
 
 # ─────────────────────────────────────────────
@@ -374,7 +347,7 @@ def refresh_account():
 
 
 def sign_out_button():
-    if st.button("Sign Out", use_container_width=True):
+    if st.button("Sign Out", width="stretch"):
         services.sign_out(st.session_state.user["username"])
         st.session_state.logged_in = False
         st.session_state.user = None
@@ -403,6 +376,7 @@ if not st.session_state.logged_in:
 elif st.session_state.user["must_change_password"]:
     show_forced_password_change()
 else:
+    page = navigation()
     show_sidebar()
 
     # On the very first login, if the DB is completely empty, kick off
@@ -434,4 +408,4 @@ else:
             "and must not be used as real QC data."
         )
 
-    route()
+    page.run()

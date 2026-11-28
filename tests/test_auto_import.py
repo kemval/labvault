@@ -2,7 +2,7 @@
 import pytest
 
 import services
-from test_app_login import login, run_app
+from test_app_login import go, login, run_app
 
 
 @pytest.fixture
@@ -26,8 +26,8 @@ def test_failed_auto_import_is_attempted_once_and_reported(fresh_db, settings, i
     assert any("Ask an administrator" in e.value for e in at.error)
 
     # Further interactions must not re-trigger the import.
-    for page in ["🔬  Sample Tracking", "📊  Dashboard"]:
-        at.sidebar.radio[0].set_value(page).run()
+    for page in ["Sample Tracking", "Dashboard"]:
+        go(at, page)
         assert not at.exception, at.exception
     assert import_calls == [(True, "kembly")]
 

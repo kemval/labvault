@@ -9,7 +9,7 @@ from fake_fda import record, serve
 from repo import core, schema, users
 from repo.results import insert_test_result
 from repo.samples import insert_sample
-from test_app_login import login, run_app
+from test_app_login import go, login, run_app
 from test_result_entry import log
 from test_services import BASE, audit, rows
 
@@ -179,9 +179,9 @@ def test_database_guards_investigations(oos):
 
 # ── the pages ────────────────────────────────────────────────
 
-def open_page(username, password, page="🔎  OOS Investigations"):
+def open_page(username, password, page="OOS Investigations"):
     at = login(run_app(), username, password)
-    at.sidebar.radio[0].set_value(page).run()
+    go(at, page)
     assert not at.exception, at.exception
     return at
 
@@ -210,7 +210,7 @@ def test_lab_tech_sees_investigations_read_only(oos, settings):
 def test_review_tab_offers_only_the_concluded_meaning(oos, settings):
     settings(demo="true")
     close(oos["investigation_id"], LAB_ERROR)
-    at = open_page("carlos", "lab2024", "📋  Test Results")
+    at = open_page("carlos", "lab2024", "Test Results")
     meaning = next(r for r in at.radio if r.label.startswith("Meaning"))
     assert list(meaning.options) == ["Reviewed and rejected — the result is invalid; "
                                      "a retest is needed"]

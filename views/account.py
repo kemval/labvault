@@ -40,3 +40,7 @@ def show():
     user = st.session_state.user
     st.markdown(f"Signed in as **{user['username']}** ({user['role'].replace('_', ' ')}).")
     password_form(user)
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()

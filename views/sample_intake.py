@@ -65,3 +65,7 @@ def show():
 
         st.success(f"✅ Sample **{sample_id}** registered successfully and assigned to **{assigned_to}**.")
         st.info(f"Priority: **{priority}** | Classification: **{recall_class}** | Status: **Pending**")
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()

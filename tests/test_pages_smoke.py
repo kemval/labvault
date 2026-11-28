@@ -1,14 +1,11 @@
 """Every page renders without an exception for an admin with data present."""
 import pytest
 
-from test_app_login import login, run_app, no_network  # noqa: F401  (fixture reuse)
+from test_app_login import go, login, registered_pages, run_app, no_network  # noqa: F401  (fixture reuse)
 
-PAGES = [
-    "📊  Dashboard", "🧫  Sample Intake", "🔬  Sample Tracking", "📋  Test Results",
-    "🔎  OOS Investigations",
-    "📄  Protocols", "📏  Specifications", "📈  Reports", "🕵️  Audit Trail", "⚙️  Admin",
-    "🔑  My Account",
-]
+from views.navigation import PAGES, pages_for
+
+TITLES = [title for title, *_ in PAGES]
 
 
 @pytest.fixture
@@ -31,30 +28,31 @@ def populated(fresh_db, settings):
     return fresh_db
 
 
-@pytest.mark.parametrize("page", PAGES)
+@pytest.mark.parametrize("page", TITLES)
 def test_page_renders(populated, page):
     at = login(run_app(), "admin", "admin123")
-    at.sidebar.radio[0].set_value(page).run()
+    go(at, page)
     assert not at.exception, at.exception
 
 
-def app_pages():
-    # app.py is a Streamlit script (importing it runs the app), so read its
-    # PAGES table from the source.
-    import ast
+def test_every_page_file_exists_and_runs_as_a_page():
     import os
-    tree = ast.parse(open(os.path.join(os.path.dirname(__file__), "..", "app.py")).read())
-    node = next(n for n in tree.body if isinstance(n, ast.Assign)
-                and getattr(n.targets[0], "id", None) == "PAGES")
-    return ast.literal_eval(node.value)
-
-
-def test_smoke_list_covers_every_page():
-    assert [label for label, *_ in app_pages()] == PAGES
+    root = os.path.join(os.path.dirname(__file__), "..")
+    for _, path, icon, _ in PAGES:
+        source = open(os.path.join(root, path)).read()
+        assert 'if __name__ == "__main__":' in source, path
+        assert icon.startswith(":material/"), path       # aria-hidden icons, not emoji
 
 
 def test_lab_tech_navigation_hides_admin_only_pages(populated):
     at = login(run_app(), "kembly", "lab2024")
-    admin_only = {label for label, _, _, admin in app_pages() if admin}
-    assert admin_only == {"⚙️  Admin"}
-    assert not admin_only & set(at.sidebar.radio[0].options)
+    assert [t for t, *_, admin in PAGES if admin] == ["Admin"]
+    assert "Admin" not in registered_pages(at)
+    assert [t for t, *_ in pages_for("lab_tech")] == [t for t in TITLES if t != "Admin"]
+    with pytest.raises(ValueError, match="not a registered page|Could not find"):
+        at.switch_page("views/admin.py")
+
+
+def test_admin_sees_every_page(populated):
+    at = login(run_app(), "admin", "admin123")
+    assert registered_pages(at) == TITLES

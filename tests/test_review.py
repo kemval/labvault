@@ -6,7 +6,7 @@ import pytest
 import services
 from domain import MAX_FAILED_LOGINS
 from repo import core
-from test_app_login import login, run_app
+from test_app_login import go, login, run_app
 from test_result_entry import log
 from test_services import audit, rows
 
@@ -140,7 +140,7 @@ def test_rejected_result_does_not_count_and_a_retest_is_needed(open_sample):
 
 def open_review(username, password):
     at = login(run_app(), username, password)
-    at.sidebar.radio[0].set_value("📋  Test Results").run()
+    go(at, "Test Results")
     assert not at.exception, at.exception
     return at
 

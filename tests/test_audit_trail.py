@@ -6,7 +6,7 @@ import pytest
 
 import services
 from repo import audit as audit_repo, core, schema
-from test_app_login import login, run_app
+from test_app_login import go, login, run_app
 from test_services import BASE, audit, rows
 
 UTC = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
@@ -73,7 +73,7 @@ def test_tracking_page_requires_a_reason(lab_db, settings):
     settings(demo="true")
     sample_id = services.register_sample(BASE, "admin")
     at = login(run_app(), "kembly", "lab2024")
-    at.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
+    go(at, "Sample Tracking")
     at.selectbox(key="trk_open").set_value(sample_id).run()
     at.selectbox(key=f"status_{sample_id}").set_value("In Progress")
     at.button(key=f"save_{sample_id}").click().run()
@@ -127,7 +127,7 @@ def test_generating_a_report_writes_no_audit_row(lab_db, settings):
     settings(demo="true")
     services.register_sample(BASE, "admin")
     at = login(run_app(), "admin", "admin123")
-    at.sidebar.radio[0].set_value("📈  Reports").run()
+    go(at, "Reports")
     next(b for b in at.button if "Generate Excel" in b.label).click().run()
     assert not at.exception, at.exception
     assert audit("REPORT_EXPORTED") == []
@@ -170,7 +170,7 @@ def test_audit_page_reaches_old_entries(busy_trail, settings):
     settings(demo="true")
     services.register_sample(BASE, "admin")
     at = login(run_app(), "admin", "admin123")
-    at.sidebar.radio[0].set_value("🕵️  Audit Trail").run()
+    go(at, "Audit Trail")
     assert not at.exception, at.exception
     at.number_input(key="audit_page").set_value(3).run()
     targets = set(at.dataframe[0].value["Target"])

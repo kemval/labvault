@@ -233,3 +233,7 @@ def _edit_form(user, s):
                 st.session_state["trk_flash"] = f"Saved changes to {sid}."
                 st.rerun()
             st.info("No changes to save.")
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()
