@@ -69,6 +69,7 @@ def main(today: date | None = None) -> int:
         print(f"── pip-audit {lock}", flush=True)
         cmd = [sys.executable, "-m", "pip_audit", "-r", os.path.join(ROOT, lock),
                "--require-hashes", "--strict", "--progress-spinner", "off", "--desc", "on",
+               "--timeout", "60",   # PyPI can be slow; a timeout fails the audit (safe)
                *[arg for vuln in ignored for arg in ("--ignore-vuln", vuln)]]
         failed |= subprocess.run(cmd).returncode != 0
     return 1 if failed else 0
