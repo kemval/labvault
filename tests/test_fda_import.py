@@ -1,5 +1,7 @@
 import threading
 
+import pytest
+
 import seed
 import services
 from fake_fda import record, serve
@@ -119,15 +121,21 @@ def test_import_refreshes_cached_reads(fresh_db, monkeypatch):
     assert fresh_db.get_oos_breakdown()["counted"] == 1
 
 
-def test_api_failure_reports_error_and_writes_nothing(fresh_db, monkeypatch):
+@pytest.mark.logs_errors
+def test_api_failure_reports_error_and_writes_nothing(fresh_db, monkeypatch, logged_errors):
     def boom(*a, **k):
-        raise ConnectionError("API down")
+        raise ConnectionError("API down at 10.0.0.7")
     monkeypatch.setattr(seed.requests, "get", boom)
 
     result = services.import_fda()
 
-    assert result == {"success": False, "error": "API down", "count": 0}
+    assert (result["success"], result["count"]) == (False, 0)
     assert counts(fresh_db) == {"samples": 0, "test_results": 0, "audit_trail": 0}
+    # The user gets plain words and a reference; the details are only in the log (M8).
+    [logged] = logged_errors
+    assert "10.0.0.7" not in result["error"]
+    assert f"reference {logged.error_id}" in result["error"]
+    assert "API down at 10.0.0.7" in repr(logged.exc_info[1])
 
 
 def test_unreadable_date_is_skipped_not_replaced_with_today(caplog):

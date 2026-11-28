@@ -16,7 +16,11 @@ from repo.specifications import seed_specifications
 from repo.schema import init_db
 from repo.users import DEMO_USERS, seed_users, session_account
 import services
+from logs import configure as configure_logging
 from views.navigation import pages_for
+from views.ui import show_error
+
+configure_logging()
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG — must be first Streamlit call
@@ -174,7 +178,11 @@ def setup():
 try:
     setup()
 except ConfigError as e:
+    # Our own message, written to tell the operator what to set.
     st.error(f"LabVault is not configured correctly: {e}")
+    st.stop()
+except Exception:
+    show_error("LabVault could not start.")
     st.stop()
 
 
@@ -365,47 +373,58 @@ def show_forced_password_change():
         sign_out_button()
 
 
-if st.session_state.logged_in:
-    end_idle_session()
-if st.session_state.logged_in:
-    refresh_account()
+def main():
+    if st.session_state.logged_in:
+        end_idle_session()
+    if st.session_state.logged_in:
+        refresh_account()
 
-if not st.session_state.logged_in:
-    # Not logged in yet — show the login screen and stop here
-    show_login()
-elif st.session_state.user["must_change_password"]:
-    show_forced_password_change()
-else:
-    page = navigation()
-    show_sidebar()
+    if not st.session_state.logged_in:
+        # Not logged in yet — show the login screen and stop here
+        show_login()
+    elif st.session_state.user["must_change_password"]:
+        show_forced_password_change()
+    else:
+        page = navigation()
+        show_sidebar()
 
-    # On the very first login, if the DB is completely empty, kick off
-    # the FDA import automatically so the user sees real data right away
-    # instead of a blank dashboard. It is attempted once per session; with
-    # only_if_empty=True, a session that loses the race to another one's
-    # import becomes a no-op instead of importing a second batch.
-    if not st.session_state.auto_import_attempted and not sample_exists():
-        st.session_state.auto_import_attempted = True
-        with st.spinner("🔬 First launch — importing real FDA pharmaceutical data..."):
-            result = services.import_fda(limit=100, only_if_empty=True,
-                                         user=st.session_state.user["username"])
-        if result["success"]:
-            st.success(f"✅ {result['count']} real FDA recall records imported. Welcome to LabVault!")
-            st.rerun()
-        else:
-            hint = ("Use **🔄 Import FDA Data** in the sidebar to try again."
-                    if st.session_state.user["role"] == ROLE_ADMIN
-                    else "Ask an administrator to import the data.")
-            st.error(f"Could not import FDA data: {result['error']}. {hint}")
+        # On the very first login, if the DB is completely empty, kick off
+        # the FDA import automatically so the user sees real data right away
+        # instead of a blank dashboard. It is attempted once per session; with
+        # only_if_empty=True, a session that loses the race to another one's
+        # import becomes a no-op instead of importing a second batch.
+        if not st.session_state.auto_import_attempted and not sample_exists():
+            st.session_state.auto_import_attempted = True
+            with st.spinner("🔬 First launch — importing real FDA pharmaceutical data..."):
+                result = services.import_fda(limit=100, only_if_empty=True,
+                                             user=st.session_state.user["username"])
+            if result["success"]:
+                st.success(f"✅ {result['count']} real FDA recall records imported. Welcome to LabVault!")
+                st.rerun()
+            else:
+                hint = ("Use **🔄 Import FDA Data** in the sidebar to try again."
+                        if st.session_state.user["role"] == ROLE_ADMIN
+                        else "Ask an administrator to import the data.")
+                st.error(f"Could not import FDA data: {result['error']}. {hint}")
 
-    # Demo data must never be mistaken for real QC records (audit C4).
-    simulated = count_simulated()
-    if simulated["samples"] or simulated["results"]:
-        st.info(
-            f"🧪 **Demo data:** {simulated['samples']} samples and {simulated['results']} "
-            "test results here are **simulated**: real FDA recall records with invented "
-            "lot numbers, assignments and lab results. They are marked **SIMULATED** "
-            "and must not be used as real QC data."
-        )
+        # Demo data must never be mistaken for real QC records (audit C4).
+        simulated = count_simulated()
+        if simulated["samples"] or simulated["results"]:
+            st.info(
+                f"🧪 **Demo data:** {simulated['samples']} samples and {simulated['results']} "
+                "test results here are **simulated**: real FDA recall records with invented "
+                "lot numbers, assignments and lab results. They are marked **SIMULATED** "
+                "and must not be used as real QC data."
+            )
 
-    page.run()
+        page.run()
+
+
+# Anything unexpected below shows a plain message with a reference; the
+# traceback goes to the log under that reference (audit M8, ADR 0021).
+# st.rerun() and st.stop() raise BaseException subclasses, so they pass through.
+try:
+    main()
+except Exception:
+    user = st.session_state.get("user") or {}
+    show_error("Something went wrong on this page.", user=user.get("username"))

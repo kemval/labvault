@@ -115,3 +115,30 @@ def open_sample(lab_db):
         "protocol_id": None, "notes": ""}, "admin")
     services.update_sample(sid, 1, "kembly", status="In Progress", reason="start")
     return sid
+
+
+@pytest.fixture(autouse=True)
+def logged_errors(request):
+    """
+    The app turns unexpected exceptions into a message plus a logged error
+    (ADR 0021), so AppTest's `at.exception` no longer sees them. Any error
+    LabVault logs therefore fails the test, unless the test is marked
+    @pytest.mark.logs_errors and inspects the list this fixture returns.
+    """
+    import logging
+    from logs import LOGGER
+
+    class Collect(logging.Handler):
+        def emit(self, record):
+            seen.append(record)
+
+    seen = []
+    handler = Collect(level=logging.ERROR)
+    logger = logging.getLogger(LOGGER)
+    logger.addHandler(handler)
+    yield seen
+    logger.removeHandler(handler)
+    if not request.node.get_closest_marker("logs_errors"):
+        assert not seen, "LabVault logged an error:\n" + "\n".join(
+            f"{r.getMessage()} ({r.exc_info[1]!r})" if r.exc_info else r.getMessage()
+            for r in seen)

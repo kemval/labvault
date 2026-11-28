@@ -5,6 +5,7 @@ import html
 import streamlit as st
 
 from domain import OOS_CATEGORIES, OOS_INVALIDATED
+from logs import log_exception
 
 
 def esc(value) -> str:
@@ -29,6 +30,18 @@ def oos_summary(breakdown) -> str:
                         if c != OOS_INVALIDATED)
     return (f"Counted: {counted}. Not counted: {breakdown[OOS_INVALIDATED]} invalidated "
             "by a laboratory error.")
+
+
+def show_error(message: str, **context) -> str:
+    """
+    For an unexpected exception, inside an `except` block: show `message`
+    (plain words, no exception text) with a reference, and log the traceback
+    under that reference (audit M8, ADR 0021). Returns the reference.
+    """
+    ref = log_exception(message, **context)
+    st.error(f"{message} Please try again. If it keeps happening, give an administrator "
+             f"this reference: **{ref}**.")
+    return ref
 
 
 # Shown for a sample with no assignee (assigned_to is NULL).
