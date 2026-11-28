@@ -67,7 +67,8 @@ def test_consecutive_saves_by_same_user_both_succeed(tracking):
     at, sample_id = tracking
     save(at, sample_id, "In Progress")
     seed_specifications()
-    services.record_result({**RESULT, "sample_id": sample_id}, "kembly")  # needed to complete
+    saved = services.record_result({**RESULT, "sample_id": sample_id}, "kembly")
+    services.sign_result(saved["id"], "carlos", "lab2024", "Approved")  # needed to complete
     at.run()
     save(at, sample_id, "Completed")
     assert rows("SELECT status, version FROM samples") == [{"status": "Completed", "version": 3}]

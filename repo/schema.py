@@ -427,6 +427,38 @@ def _m006_password_security(conn):
                      (passwords.wrap_legacy(digest), username))
 
 
+def _m007_result_signatures(conn):
+    """
+    Audit 3.3: second-person review with e-signature (ADR 0014). One
+    signature per result, append-only, never by the analyst who logged it.
+    Existing results have none, so they show as awaiting review.
+    """
+    conn.execute(f"""
+        CREATE TABLE result_signatures (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            result_id INTEGER NOT NULL UNIQUE REFERENCES test_results(id),
+            signed_by TEXT NOT NULL REFERENCES users(username),
+            meaning   TEXT NOT NULL CHECK (meaning IN ('Approved', 'Rejected')),
+            reason    TEXT,
+            signed_at TEXT NOT NULL DEFAULT {_UTC_NOW},
+            CHECK (meaning = 'Approved' OR length(trim(coalesce(reason, ''))) > 0)
+        )""")
+    conn.execute("""
+        CREATE TRIGGER result_signatures_second_person
+        BEFORE INSERT ON result_signatures
+        WHEN NEW.signed_by = (SELECT tested_by FROM test_results WHERE id = NEW.result_id)
+        BEGIN
+            SELECT RAISE(ABORT, 'a result must be signed by someone other than its analyst');
+        END""")
+    for event in ("UPDATE", "DELETE"):
+        conn.execute(f"""
+            CREATE TRIGGER result_signatures_no_{event.lower()}
+            BEFORE {event} ON result_signatures
+            BEGIN
+                SELECT RAISE(ABORT, 'result_signatures is append-only');
+            END""")
+
+
 MIGRATIONS = [
     _m001_simulated_flag,
     _m002_sample_version,
@@ -434,6 +466,7 @@ MIGRATIONS = [
     _m004_audit_trail,
     _m005_specifications,
     _m006_password_security,
+    _m007_result_signatures,
 ]
 
 

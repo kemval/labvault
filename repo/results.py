@@ -27,12 +27,19 @@ def insert_test_result(data: dict, conn=None) -> int:
     return run_in(conn, run)
 
 
+# Each result's signature (migration 7): meaning, signer, time and reason.
+REVIEW_COLUMNS = ("g.meaning AS review, g.signed_by AS reviewed_by, "
+                  "g.signed_at AS reviewed_at, g.reason AS review_reason")
+REVIEW_JOIN = "LEFT JOIN result_signatures g ON g.result_id = r.id"
+
+
 def results_for_sample(sample_id: str):
     """Fetch all test results for a specific sample, newest first."""
     conn = get_conn()
     rows = conn.execute("""
-        SELECT * FROM test_results WHERE sample_id = ? ORDER BY id DESC
-    """, (sample_id,)).fetchall()
+        SELECT r.*, {REVIEW_COLUMNS} FROM test_results r {REVIEW_JOIN}
+        WHERE r.sample_id = ? ORDER BY r.id DESC
+    """.format(REVIEW_COLUMNS=REVIEW_COLUMNS, REVIEW_JOIN=REVIEW_JOIN), (sample_id,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -45,8 +52,9 @@ def all_results():
     """
     conn = get_conn()
     rows = conn.execute("""
-        SELECT * FROM test_results ORDER BY id DESC
-    """).fetchall()
+        SELECT r.*, {REVIEW_COLUMNS} FROM test_results r {REVIEW_JOIN}
+        ORDER BY r.id DESC
+    """.format(REVIEW_COLUMNS=REVIEW_COLUMNS, REVIEW_JOIN=REVIEW_JOIN)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

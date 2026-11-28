@@ -43,7 +43,8 @@ SYSTEM_ACCOUNTS = (SYSTEM_USER, SIMULATOR_USER)
 # SAMPLE LIFECYCLE AND PERMISSIONS (audit H5, ADR 0011)
 # Pure rules shared by services.py (which enforces them) and the views
 # (which offer only what they allow). `user` is {"username", "role"};
-# `sample` needs status, assigned_to and, for completion, result_count.
+# `sample` needs status, assigned_to and, for completion, approved_count and
+# unreviewed_count (repo.samples.REVIEW_COUNTS).
 # ─────────────────────────────────────────────
 
 TRANSITIONS = {
@@ -98,8 +99,13 @@ def transition_error(user, sample, new_status):
         return f"A {current} sample can't be moved to {new_status}."
     if (current, new_status) in REOPENINGS and not is_admin(user):
         return f"Only an admin can reopen a {current} sample."
-    if new_status == STATUS_COMPLETED and not sample.get("result_count"):
-        return "Record at least one test result before completing the sample."
+    if new_status == STATUS_COMPLETED:
+        # Only reviewed results count toward the sample (ADR 0014).
+        if sample.get("unreviewed_count"):
+            return (f"{sample['unreviewed_count']} result(s) still awaiting review. "
+                    "Each result needs a second person's signature before completion.")
+        if not sample.get("approved_count"):
+            return "Completing a sample needs at least one approved test result."
     return None
 
 
@@ -209,3 +215,33 @@ def evaluate_result(test_name, value, outcome, spec):
 MAX_FAILED_LOGINS = 5        # consecutive failures before the account is locked
 LOCKOUT_MINUTES = 15
 SESSION_IDLE_MINUTES = 30    # idle time after which the next action signs the user out
+
+
+# ─────────────────────────────────────────────
+# RESULT REVIEW AND E-SIGNATURE (audit 3.3, ADR 0014)
+# ─────────────────────────────────────────────
+
+REVIEW_APPROVED = "Approved"
+REVIEW_REJECTED = "Rejected"
+REVIEW_MEANINGS = (REVIEW_APPROVED, REVIEW_REJECTED)
+REVIEW_AWAITING = "Awaiting review"
+# The meaning of each signature as shown to the signer and on the record (Part 11 §11.50).
+SIGNATURE_MEANING_TEXT = {
+    REVIEW_APPROVED: "Reviewed and approved — the result is valid and counts toward the sample",
+    REVIEW_REJECTED: "Reviewed and rejected — the result is invalid; a retest is needed",
+}
+
+
+def review_error(user, result):
+    """
+    Why `user` may not sign `result`, or None. `result` needs tested_by,
+    review (its signature meaning, or None) and sample_status.
+    Second-person rule: anyone may review except the analyst who logged it.
+    """
+    if result.get("review"):
+        return f"This result was already signed ({result['review']})."
+    if result["tested_by"] == user["username"]:
+        return "You logged this result, so someone else has to review it."
+    if result["sample_status"] != STATUS_IN_PROGRESS:
+        return "Results can only be reviewed while the sample is In Progress."
+    return None

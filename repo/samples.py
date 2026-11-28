@@ -2,6 +2,7 @@
 repo/samples.py — sample rows.
 """
 
+from domain import REVIEW_APPROVED
 from repo.core import get_conn, run_in
 
 
@@ -29,17 +30,24 @@ def insert_sample(data: dict, conn=None) -> bool:
     return run_in(conn, run)
 
 
+# Per-sample result counts for the completion rule (domain.transition_error):
+# all results, approved ones, and ones nobody has signed yet.
+REVIEW_COUNTS = f"""
+    (SELECT COUNT(*) FROM test_results t
+     WHERE t.sample_id = samples.sample_id) AS result_count,
+    (SELECT COUNT(*) FROM test_results t JOIN result_signatures g ON g.result_id = t.id
+     WHERE t.sample_id = samples.sample_id AND g.meaning = '{REVIEW_APPROVED}') AS approved_count,
+    (SELECT COUNT(*) FROM test_results t LEFT JOIN result_signatures g ON g.result_id = t.id
+     WHERE t.sample_id = samples.sample_id AND g.id IS NULL) AS unreviewed_count"""
+
+
 def all_samples(status_filter=None):
     """
     Fetch all samples, optionally filtered by status.
     The index on status makes the filtered query very fast even with many rows.
     """
-    # result_count lets the views offer "Completed" only when it's allowed.
-    select = """
-        SELECT samples.*,
-               (SELECT COUNT(*) FROM test_results t
-                WHERE t.sample_id = samples.sample_id) AS result_count
-        FROM samples"""
+    # The counts let the views offer "Completed" only when it's allowed.
+    select = f"SELECT samples.*, {REVIEW_COUNTS} FROM samples"
     conn = get_conn()
     if status_filter and status_filter != "All":
         rows = conn.execute(f"{select} WHERE status = ? ORDER BY id DESC",

@@ -8,6 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 import db  # noqa: E402
+import services  # noqa: E402
 from repo import (audit, core, fda_import, passwords, protocols, results, samples, schema,  # noqa: E402
                   specifications, users)
 
@@ -93,3 +94,16 @@ def cheap_password_hashing(monkeypatch):
     """Real scrypt costs ~140 ms per hash; tests use a tiny cost. The cost is
     stored with each hash, so verification is unaffected."""
     monkeypatch.setattr(passwords, "COST", {"n": 2 ** 4, "r": 1, "p": 1})
+
+
+@pytest.fixture
+def open_sample(lab_db):
+    """An In Progress Injectable assigned to kembly, with the demo specs."""
+    specifications.seed_specifications()
+    sid = services.register_sample({
+        "product_name": "Ceftriaxone Injection", "lot_number": "", "manufacturer": "M",
+        "sample_type": "Injectable", "recall_class": "Class I", "priority": "Critical",
+        "reason_for_recall": "", "collection_date": "2026-01-01", "assigned_to": "kembly",
+        "protocol_id": None, "notes": ""}, "admin")
+    services.update_sample(sid, 1, "kembly", status="In Progress", reason="start")
+    return sid
