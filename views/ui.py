@@ -44,6 +44,17 @@ def show_error(message: str, **context) -> str:
     return ref
 
 
+def html_block(markup: str) -> None:
+    """
+    Render an HTML snippet written as an indented, multi-line f-string. Lines are
+    unindented and empty ones dropped first: in Markdown a blank line (an
+    optional part that came out empty) ends the HTML block, and the indented
+    lines after it render as a code block showing the raw tags.
+    """
+    st.markdown("\n".join(line.strip() for line in markup.splitlines() if line.strip()),
+                unsafe_allow_html=True)
+
+
 def utc_text(stamp) -> str:
     """'2026-11-28T07:53:25Z' -> '2026-11-28 07:53:25 UTC' (stored stamps are UTC)."""
     return f"{stamp.replace('T', ' ').removesuffix('Z')} UTC" if stamp else ""

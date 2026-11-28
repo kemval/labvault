@@ -14,7 +14,7 @@ from domain import (PRIORITIES, PRIORITY_CRITICAL, PRIORITY_MAJOR, PRIORITY_MINO
                     status_options)
 from db import find_samples, get_lab_techs, get_sample_detail
 import services
-from views.ui import esc, SIMULATED_LABEL, UNASSIGNED, page_header, simulated_text
+from views.ui import esc, html_block, SIMULATED_LABEL, UNASSIGNED, page_header, simulated_text
 
 PAGE_SIZE = 25
 
@@ -146,7 +146,7 @@ def _detail(user, s):
                     if s.get("is_simulated") else "")
         protocol = (f"{s['protocol_name']} (#{s['protocol_id']})"
                     if s.get("protocol_id") else "None assigned")
-        st.markdown(f"""
+        html_block(f"""
             <div style="background:#f8f9ff;border-radius:8px;padding:14px;
                         border-left:4px solid {border_color}">
                 <b>Product:</b> {esc(s['product_name'])}<br>
@@ -165,7 +165,7 @@ def _detail(user, s):
                 <b>Reason:</b> {esc((s.get('reason_for_recall') or 'N/A')[:200])}<br>
                 {sim_line}
             </div>
-        """, unsafe_allow_html=True)
+        """)
         if s.get("notes"):
             st.markdown("**Notes:**")
             st.text(s["notes"])
