@@ -4,6 +4,8 @@ import html
 
 import streamlit as st
 
+from domain import OOS_CATEGORIES, OOS_INVALIDATED
+
 
 def esc(value) -> str:
     """
@@ -20,6 +22,14 @@ SIMULATED_LABEL = "SIMULATED"
 def simulated_text(flag) -> str:
     """'Yes'/'No' for table columns; missing flags count as real data."""
     return "Yes" if flag else "No"
+
+def oos_summary(breakdown) -> str:
+    """One line on where OOS results stand, from db.get_oos_breakdown() (ADR 0019)."""
+    counted = ", ".join(f"{breakdown[c]} {c.lower()}" for c in OOS_CATEGORIES
+                        if c != OOS_INVALIDATED)
+    return (f"Counted: {counted}. Not counted: {breakdown[OOS_INVALIDATED]} invalidated "
+            "by a laboratory error.")
+
 
 # Shown for a sample with no assignee (assigned_to is NULL).
 UNASSIGNED = "Unassigned"

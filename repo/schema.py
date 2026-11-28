@@ -537,6 +537,15 @@ MIGRATIONS = [
 ]
 
 
+def current_version() -> int:
+    """The applied migration count of the configured database."""
+    conn = get_conn()
+    try:
+        return schema_version(conn)
+    finally:
+        conn.close()
+
+
 def schema_version(conn) -> int:
     return conn.execute("PRAGMA user_version").fetchone()[0]
 

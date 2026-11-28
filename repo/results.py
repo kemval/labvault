@@ -2,7 +2,9 @@
 repo/results.py — test result rows.
 """
 
-from domain import RESULT_OOS
+from domain import (CONCLUSION_CONFIRMED, CONCLUSION_LAB_ERROR, INVESTIGATION_OPEN,
+                    OOS_CATEGORIES, OOS_CONFIRMED, OOS_COUNTED, OOS_INVALIDATED,
+                    OOS_NOT_INVESTIGATED, OOS_UNDER_INVESTIGATION, RESULT_OOS, REVIEW_REJECTED)
 from repo.core import get_conn, run_in
 
 
@@ -63,32 +65,49 @@ def all_results():
     return [dict(r) for r in rows]
 
 
+# domain.oos_category in SQL, over test_results r {REVIEW_JOIN} (ADR 0019).
+OOS_CATEGORY_SQL = f"""
+    CASE WHEN r.status != '{RESULT_OOS}' THEN NULL
+         WHEN i.conclusion = '{CONCLUSION_LAB_ERROR}' OR g.meaning = '{REVIEW_REJECTED}'
+              THEN '{OOS_INVALIDATED}'
+         WHEN i.conclusion = '{CONCLUSION_CONFIRMED}' THEN '{OOS_CONFIRMED}'
+         WHEN i.status = '{INVESTIGATION_OPEN}' THEN '{OOS_UNDER_INVESTIGATION}'
+         ELSE '{OOS_NOT_INVESTIGATED}' END"""
+
+
 def oos_results(limit: int = 10):
     """
-    Fetch only the Out-of-Spec results — cheaper than loading everything and
-    filtering in Python. The index on test_results.status makes this fast.
+    The most recent OOS results that still count (not invalidated), with
+    where each stands — for the dashboard alerts.
     """
+    marks = ", ".join("?" * len(OOS_COUNTED))
     conn = get_conn()
-    rows = conn.execute("""
-        SELECT sample_id, test_name, result_value, result_unit,
-               spec_min, spec_max, tested_by, tested_at, is_simulated
-        FROM   test_results
-        WHERE  status = ?
-        ORDER  BY id DESC
-        LIMIT  ?
-    """, (RESULT_OOS, limit)).fetchall()
+    rows = conn.execute(f"""
+        SELECT * FROM (
+            SELECT r.id, r.sample_id, r.test_name, r.result_value, r.result_unit,
+                   r.spec_min, r.spec_max, r.tested_by, r.tested_at, r.is_simulated,
+                   {OOS_CATEGORY_SQL} AS oos_category
+            FROM test_results r {REVIEW_JOIN}
+            WHERE r.status = ?)
+        WHERE oos_category IN ({marks})
+        ORDER BY id DESC LIMIT ?
+    """, (RESULT_OOS, *OOS_COUNTED, limit)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def count_oos_results():
+def oos_breakdown():
     """
-    Count of OOS results — used as a KPI metric on the dashboard.
-    A single COUNT(*) is much faster than fetching all rows and len()-ing them.
+    {category: count} for every OOS category (zeros included), plus
+    "counted": the headline OOS total, which leaves out invalidated results.
     """
     conn = get_conn()
-    count = conn.execute(
-        "SELECT COUNT(*) FROM test_results WHERE status = ?", (RESULT_OOS,)
-    ).fetchone()[0]
+    rows = conn.execute(f"""
+        SELECT {OOS_CATEGORY_SQL} AS category, COUNT(*) AS n
+        FROM test_results r {REVIEW_JOIN} WHERE r.status = ? GROUP BY category
+    """, (RESULT_OOS,)).fetchall()
     conn.close()
-    return count
+    counts = {c: 0 for c in OOS_CATEGORIES}
+    counts.update({r["category"]: r["n"] for r in rows})
+    counts["counted"] = sum(counts[c] for c in OOS_COUNTED)
+    return counts

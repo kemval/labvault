@@ -90,6 +90,14 @@ def settings(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def never_the_real_database(tmp_path, monkeypatch):
+    """core.DB_PATH defaults to ./labvault.db — the developer's real data.
+    Every test starts pointed at a throwaway path instead; fresh_db and
+    friends then override it with their own."""
+    monkeypatch.setattr(core, "DB_PATH", str(tmp_path / "no-database-configured.db"))
+
+
+@pytest.fixture(autouse=True)
 def cheap_password_hashing(monkeypatch):
     """Real scrypt costs ~140 ms per hash; tests use a tiny cost. The cost is
     stored with each hash, so verification is unaffected."""

@@ -12,7 +12,7 @@ the caches it affects.
 
 import streamlit as st
 
-from repo import (audit, investigations, protocols, results, samples, signatures,
+from repo import (audit, investigations, protocols, results, samples, schema, signatures,
                   specifications, users)
 
 
@@ -129,9 +129,16 @@ def get_oos_results(limit: int = 10):
     return results.oos_results(limit)
 
 
+@st.cache_resource
+def get_schema_version():
+    """Migrations run once per process at start-up, so this can't change while it runs."""
+    return schema.current_version()
+
+
 @st.cache_data(ttl=30)
-def count_oos_results():
-    return results.count_oos_results()
+def get_oos_breakdown():
+    """OOS results per category, plus "counted" (excludes invalidated) — ADR 0019."""
+    return results.oos_breakdown()
 
 
 # ─────────────────────────────────────────────
@@ -164,7 +171,7 @@ def clear_data_caches():
                    count_samples_by_status, count_samples_by_priority, count_simulated, sample_exists,
                    get_results_for_sample, get_all_results, get_oos_results,
                    get_results_awaiting_review, get_all_investigations,
-                   count_oos_results):
+                   get_oos_breakdown):
         cached.clear()
     clear_audit_cache()
 

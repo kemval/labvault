@@ -227,8 +227,15 @@ I approached this project as if I were building an internal tool for a real phar
 - Linked to sample types for contextual relevance
 
 ### 8. 📈 Report Generation
-- **Excel export** (.xlsx) with 3 sheets: Samples, Test Results, OOS-Only
-- **PDF export** (.pdf) with formatted tables, headers, and OOS highlights
+- **Excel export** (.xlsx) with 4 sheets: Report Info (filters, author, UTC time, counts), Samples,
+  Test Results (with review and investigation outcome), OOS Results
+- **PDF export** (.pdf) with every filtered sample and OOS result (tables continue across pages),
+  what the report covers and who generated it, and "Page x of y" on every page
+- **OOS counts** (ADR 0019): each OOS result is *confirmed*, *under investigation*,
+  *not investigated* (recorded before investigations existed) or *invalidated* by a laboratory
+  error. Headline OOS totals — here, on the dashboard and the admin panel — leave out the
+  invalidated ones, which are still listed
+- **Monthly trend** of results tested and OOS counted, for the selected samples
 - **Filterable exports**: Choose which statuses and priorities to include
 - Audit-logged: every download is recorded in the audit trail
 
