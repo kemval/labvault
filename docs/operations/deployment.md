@@ -14,7 +14,17 @@ The database is on a Docker volume and is streamed to object storage (ADR 0023, 
 | Backup bucket | **Cloudflare R2**: 10 GB, 1 million writes a month, no egress fees | Litestream writes only when data changes; check the R2 usage page in the first weeks. |
 | HTTPS name | a free **DuckDNS** subdomain, or any domain you own | Its DNS A record must point at the VM's static IP. |
 
-Both VM providers ask for a payment card to verify the account, even on the free tier. Set a **budget alert** of $1 in the provider's billing settings so any charge is noticed immediately.
+Both VM providers ask for a payment card to verify the account, even on the free tier.
+
+### Current status, and options without a payment card
+**Current status (2026-11-28, owner's decision):** LabVault runs only as the public **demo** on Streamlit Community Cloud. It holds simulated data, needs no card, and is rebuilt on restart. This production setup is built and tested (ADR 0023, ADR 0024), ready for when an organisation hosts LabVault on an account it controls.
+
+Hosts that reportedly need no card: Render's free web service and Hugging Face Spaces (Docker); for buckets, Backblaze B2 and Tigris. Check each at sign-up. They have **no persistent disk** and sleep when idle. `start.sh` restores from the bucket on every start, so data survives, but:
+- a kill without a stop signal can lose about 1 s of changes;
+- a platform that starts the new version **before** stopping the old one (Render does) briefly has **two writers to one replica**, which can make it unrestorable;
+- there's no service agreement for lab records.
+
+These hosts suit a showcase. Use them for real records only after adding a guard against two writers. Set a **budget alert** of $1 in the provider's billing settings so any charge is noticed immediately.
 
 ## 1. One-time server setup
 1. **Create the VM.**

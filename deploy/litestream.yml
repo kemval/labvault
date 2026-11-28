@@ -25,6 +25,12 @@ snapshot:
   interval: 24h
   retention: 720h
 
+# After successful syncs, ping a monitor (e.g. a Healthchecks.io check) every
+# 5 minutes; the monitor alerts the owner when the pings stop (ADR 0025).
+# Empty LITESTREAM_HEARTBEAT_URL: no pings.
+heartbeat-url: ${LITESTREAM_HEARTBEAT_URL}
+heartbeat-interval: 5m
+
 # Re-check the replica against the local database every 12 hours.
 validation:
   interval: 12h

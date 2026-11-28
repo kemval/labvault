@@ -557,6 +557,13 @@ grep 3f9c1a2b labvault.log      # message, user, context and traceback
 app's own handler (ADR 0021). In tests, any error LabVault logs fails the test unless it is
 marked `@pytest.mark.logs_errors`.
 
+**Alerts (ADR 0025):** with `LABVAULT_ALERT_URL` set to an ntfy topic, each logged error is
+also pushed to the owner's phone. The push holds the message and reference only, and is
+rate-limited. An external uptime monitor and a Healthchecks.io backup heartbeat (Litestream's
+`heartbeat-url`) cover a down site and stopped backups. Setup is in the
+[monitoring runbook](docs/operations/monitoring.md); test it with
+`python scripts/send_test_alert.py`.
+
 CI (`.github/workflows/ci.yml`) runs ruff, the test suite on Python 3.11 and 3.12 and a
 lock-file freshness check on every pull request, all from the hashed lock files. The dependency
 audit (`.github/workflows/dependency-audit.yml`) runs on every pull request and weekly.
@@ -593,6 +600,7 @@ labvault/
 ├── app.py                  # Main entry point — auth, routing, global styles
 ├── config.py               # Deployment settings (demo vs. secure mode)
 ├── logs.py                 # JSON logging to stderr; error references for user messages
+├── alerts.py               # Rate-limited ntfy push alerts for logged errors
 ├── domain.py               # Statuses, priorities, roles… defined once (must match the DB rules)
 ├── services.py             # Use cases: every data change + its audit row in one transaction
 ├── db.py                   # Cached reads for the views (the only Streamlit-aware data module)
