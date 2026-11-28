@@ -2,7 +2,7 @@
 repo/samples.py — sample rows.
 """
 
-from domain import PRIORITIES, REVIEW_APPROVED, TERMINAL_STATUSES
+from domain import PRIORITIES, REVIEW_APPROVED, STATUS_IN_PROGRESS, TERMINAL_STATUSES
 from repo.core import get_conn, run_in
 
 
@@ -39,23 +39,6 @@ REVIEW_COUNTS = f"""
      WHERE t.sample_id = samples.sample_id AND g.meaning = '{REVIEW_APPROVED}') AS approved_count,
     (SELECT COUNT(*) FROM test_results t LEFT JOIN result_signatures g ON g.result_id = t.id
      WHERE t.sample_id = samples.sample_id AND g.id IS NULL) AS unreviewed_count"""
-
-
-def all_samples(status_filter=None):
-    """
-    Fetch all samples, optionally filtered by status.
-    The index on status makes the filtered query very fast even with many rows.
-    """
-    # The counts let the views offer "Completed" only when it's allowed.
-    select = f"SELECT samples.*, {REVIEW_COUNTS} FROM samples"
-    conn = get_conn()
-    if status_filter and status_filter != "All":
-        rows = conn.execute(f"{select} WHERE status = ? ORDER BY id DESC",
-                            (status_filter,)).fetchall()
-    else:
-        rows = conn.execute(f"{select} ORDER BY id DESC").fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
 
 
 # The orders the tracking page offers. Every one ends on id so paging is stable.
@@ -112,6 +95,50 @@ def find_samples(status=None, priority=None, search="", assigned_to=None,
     return [dict(r) for r in rows], total
 
 
+def report_filter(statuses=None, priorities=None, alias="samples"):
+    """(WHERE clause, args) over `alias` for the report filters. None means
+    any; an empty list matches nothing, as an empty multiselect should."""
+    where, args = [], []
+    for column, values in (("status", statuses), ("priority", priorities)):
+        if values is not None:
+            where.append(f"{alias}.{column} IN ({', '.join('?' * len(values)) or 'NULL'})")
+            args += list(values)
+    return (f"WHERE {' AND '.join(where)}" if where else ""), args
+
+
+def report_samples(statuses=None, priorities=None):
+    """Every sample matching the report filters, newest first."""
+    where, args = report_filter(statuses, priorities)
+    conn = get_conn()
+    rows = conn.execute(f"SELECT * FROM samples {where} ORDER BY id DESC", args).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def loggable_samples(username=None):
+    """In Progress samples a user can log results on: those assigned to
+    `username`, or all of them when None (admins). domain.result_entry_error
+    is the rule; services.record_result enforces it."""
+    where, args = "status = ?", [STATUS_IN_PROGRESS]
+    if username is not None:
+        where += " AND assigned_to = ?"
+        args.append(username)
+    conn = get_conn()
+    rows = conn.execute(f"SELECT sample_id, product_name, sample_type, status, assigned_to, "
+                        f"is_simulated FROM samples WHERE {where} ORDER BY id DESC",
+                        args).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def count_by_source():
+    """{source: count}, e.g. how many samples came from the FDA import."""
+    conn = get_conn()
+    rows = conn.execute("SELECT source, COUNT(*) AS n FROM samples GROUP BY source").fetchall()
+    conn.close()
+    return {r["source"]: r["n"] for r in rows}
+
+
 def open_samples_assigned(conn, username: str) -> list:
     """IDs of samples assigned to `username` that are not Completed or Rejected."""
     marks = ", ".join("?" * len(TERMINAL_STATUSES))
@@ -136,7 +163,7 @@ def sample_detail(sample_id: str):
 
 def recent_samples(limit: int = 8):
     """
-    A lightweight version of get_all_samples — only fetches the columns
+    Only fetches the columns
     the dashboard actually needs, and only the N most recent rows.
     No point pulling all 100 columns × 100 rows just to show 8 cards.
     """

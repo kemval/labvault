@@ -15,7 +15,7 @@ from repo import core, results
 from test_app_login import go, login, no_network, run_app  # noqa: F401
 from test_result_entry import log
 from test_services import BASE, rows
-from views.reports import build_excel, build_pdf, monthly_trend, report_meta, with_oos_category
+from views.reports import build_excel, build_pdf, report_meta, with_oos_category
 
 OOS = "Fail (OOS)"
 
@@ -73,7 +73,7 @@ def every_kind(lab_db):
 
 
 def test_sql_and_python_categories_agree(every_kind):
-    by_python = {r["id"]: oos_category(r) for r in results.all_results()}
+    by_python = {r["id"]: oos_category(r) for r in results.report_results()}
     conn = core.get_conn()
     by_sql = dict(conn.execute(f"SELECT r.id, {results.OOS_CATEGORY_SQL} FROM test_results r "
                                f"{results.REVIEW_JOIN}").fetchall())
@@ -156,7 +156,7 @@ def test_pdf_escapes_markup_in_values():
 # ── Excel ───────────────────────────────────────────────────
 
 def test_excel_states_what_it_covers(every_kind):
-    found = results.all_results()
+    found = results.report_results()
     samples = rows("SELECT * FROM samples")
     meta = report_meta(samples, with_oos_category(found), "carlos", schema_version=10)
     wb = openpyxl.load_workbook(io.BytesIO(build_excel(samples, found, meta)))
@@ -171,15 +171,25 @@ def test_excel_states_what_it_covers(every_kind):
 
 # ── trend and page ──────────────────────────────────────────
 
-def test_monthly_trend_counts_results_and_counted_oos():
-    found = with_oos_category([
-        {"status": "Pass", "tested_at": "2026-01-05"},
-        {"status": OOS, "tested_at": "2026-01-20", "investigation_status": "Open"},
-        {"status": OOS, "tested_at": "2026-02-01", "review": "Rejected"},   # not counted
-    ])
-    trend = monthly_trend(found)
-    assert trend.to_dict("index") == {"2026-01": {"Results": 2, "OOS (counted)": 1},
-                                      "2026-02": {"Results": 1, "OOS (counted)": 0}}
+def test_report_summary_counts_in_sql(every_kind):
+    summary = results.report_summary()
+    assert (summary["samples"], summary["results"], summary["oos_counted"]) == (1, 5, 3)
+    assert summary["oos"][OOS_INVALIDATED] == 1
+    # one month per tested_at; the invalidated OOS is tested but not counted
+    assert sum(t for _, t, _ in summary["months"]) == 5
+    assert sum(c for _, _, c in summary["months"]) == 3
+    assert results.report_summary(statuses=["Completed"])["results"] == 0
+    assert results.report_summary(statuses=[])["samples"] == 0      # empty filter: nothing
+
+
+def test_report_rows_match_the_summary_and_carry_categories(every_kind):
+    from repo.samples import report_samples
+    found = results.report_results(["In Progress"], None)
+    assert len(found) == results.report_summary(["In Progress"])["results"] == 5
+    assert {r["oos_category"] for r in found} == {None, OOS_CONFIRMED, OOS_INVALIDATED,
+                                                  OOS_UNDER_INVESTIGATION, OOS_NOT_INVESTIGATED}
+    assert [s["status"] for s in report_samples(["In Progress"], ["Major"])] == ["In Progress"]
+    assert report_samples(["Pending"]) == []
 
 
 def test_reports_page_summarises_the_selection(every_kind, settings):

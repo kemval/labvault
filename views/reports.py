@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 
 import services
-from db import get_all_results, get_all_samples, get_schema_version
+from db import get_report_rows, get_report_summary, get_schema_version, sample_exists
 from domain import (OOS_CATEGORIES, OOS_COUNTED, OOS_INVALIDATED, PRIORITIES, RESULT_OOS,
                     SAMPLE_STATUSES, oos_category, spec_text)
 from repo.core import utc_now
@@ -249,33 +249,31 @@ def build_pdf(samples, results, meta=None):
     return output.getvalue()
 
 
-def monthly_trend(results):
-    """Results tested and OOS counted per month (YYYY-MM), for the trend chart."""
-    months = {}
-    for r in results:
-        month = (r.get("tested_at") or "")[:7]
-        if len(month) != 7:
-            continue
-        tested, counted = months.get(month, (0, 0))
-        months[month] = (tested + 1, counted + (r.get("oos_category") in OOS_COUNTED))
-    return pd.DataFrame([{"Month": m, "Results": t, "OOS (counted)": o}
-                         for m, (t, o) in sorted(months.items())]).set_index("Month") \
-        if months else pd.DataFrame()
-
-
 def _log_download(username, detail):
     """download_button callback: the export is audited when it leaves the app."""
     services.log_event(username, "REPORT_EXPORTED", "Reports", "", f"Downloaded {detail}")
 
 
+def _trend_frame(months):
+    """The report summary's (month, tested, counted) rows as a chart frame."""
+    return pd.DataFrame([{"Month": m, "Results": t, "OOS (counted)": c} for m, t, c in months]
+                        ).set_index("Month")
+
+
+def _export(user, statuses, priorities):
+    """Load every row the filters select, with the report's metadata.
+    Runs only when an export is generated (ADR 0020)."""
+    samples, results = get_report_rows(statuses, priorities)
+    meta = report_meta(samples, results, user["username"], statuses, priorities,
+                       get_schema_version())
+    return samples, results, meta
+
+
 def show():
     page_header("📈 Reports", "Export quality control data as PDF or Excel")
 
-    user    = st.session_state.user
-    samples = get_all_samples()
-    results = with_oos_category(get_all_results())
-
-    if not samples:
+    user = st.session_state.user
+    if not sample_exists():
         st.info("No data to export yet.")
         return
 
@@ -294,31 +292,23 @@ def show():
             list(PRIORITIES),
             default=list(PRIORITIES)
         )
+    statuses, priorities = tuple(status_filter), tuple(priority_filter)
 
-    filtered_samples = [s for s in samples
-                        if s["status"] in status_filter
-                        and s["priority"] in priority_filter]
-
-    filtered_ids     = {s["sample_id"] for s in filtered_samples}
-    filtered_results = [r for r in results if r["sample_id"] in filtered_ids]
-    meta = report_meta(filtered_samples, filtered_results, user["username"],
-                       status_filter, priority_filter, get_schema_version())
-
-    # ── SUMMARY of what the export will contain ──────────────
+    # ── SUMMARY of what the export will contain (SQL aggregates) ──
+    summary = get_report_summary(statuses, priorities)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Samples", meta["samples"])
-    c2.metric("Test Results", meta["results"])
-    c3.metric("OOS Results (counted)", meta["oos_counted"],
+    c1.metric("Samples", summary["samples"])
+    c2.metric("Test Results", summary["results"])
+    c3.metric("OOS Results (counted)", summary["oos_counted"],
               help="Confirmed, under investigation, or not investigated (recorded before "
                    "investigations existed). Invalidated results are listed but not counted.")
-    c4.metric("OOS Invalidated", meta["oos"][OOS_INVALIDATED],
+    c4.metric("OOS Invalidated", summary["oos"][OOS_INVALIDATED],
               help="An investigation found an assignable laboratory error (ADR 0015).")
-    st.caption(" · ".join(f"{c}: {meta['oos'][c]}" for c in OOS_CATEGORIES))
+    st.caption(" · ".join(f"{c}: {summary['oos'][c]}" for c in OOS_CATEGORIES))
 
-    trend = monthly_trend(filtered_results)
-    if not trend.empty:
+    if summary["months"]:
         st.markdown("#### Results and OOS per Month")
-        st.line_chart(trend)
+        st.line_chart(_trend_frame(summary["months"]))
     st.markdown("---")
 
     # ── EXPORT BUTTONS ────────────────────────────────────────
@@ -328,19 +318,20 @@ def show():
     with col_excel:
         st.markdown("**Excel Report (.xlsx)**")
         st.markdown("4 sheets: Report Info · Samples · Test Results · OOS Results")
-        if st.button("📊 Generate Excel", use_container_width=True, type="primary"):
+        if st.button("📊 Generate Excel", width="stretch", type="primary"):
             with st.spinner("Building Excel report..."):
                 try:
-                    excel_data = build_excel(filtered_samples, filtered_results, meta)
+                    samples, results, meta = _export(user, statuses, priorities)
+                    excel_data = build_excel(samples, results, meta)
                     st.download_button(
                         label="⬇️ Download Excel",
                         # Audited when the file is actually downloaded, not built.
                         on_click=_log_download,
-                        args=(user["username"], f"Excel: {len(filtered_samples)} samples, {len(filtered_results)} results"),
+                        args=(user["username"], f"Excel: {len(samples)} samples, {len(results)} results"),
                         data=excel_data,
                         file_name=f"LabVault_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
+                        width="stretch"
                     )
                 except Exception as e:
                     st.error(f"Excel export failed: {e}")
@@ -348,19 +339,20 @@ def show():
     with col_pdf:
         st.markdown("**PDF Report (.pdf)**")
         st.markdown("Every filtered sample and OOS result, with filters, author and page numbers")
-        if st.button("📄 Generate PDF", use_container_width=True):
+        if st.button("📄 Generate PDF", width="stretch"):
             with st.spinner("Building PDF report..."):
                 try:
-                    pdf_data = build_pdf(filtered_samples, filtered_results, meta)
+                    samples, results, meta = _export(user, statuses, priorities)
+                    pdf_data = build_pdf(samples, results, meta)
                     st.download_button(
                         label="⬇️ Download PDF",
                         # Audited when the file is actually downloaded, not built.
                         on_click=_log_download,
-                        args=(user["username"], f"PDF: {len(filtered_samples)} samples, {len(filtered_results)} results"),
+                        args=(user["username"], f"PDF: {len(samples)} samples, {len(results)} results"),
                         data=pdf_data,
                         file_name=f"LabVault_Report_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
                         mime="application/pdf",
-                        use_container_width=True
+                        width="stretch"
                     )
                 except Exception as e:
                     st.error(f"PDF export failed: {e}. Make sure reportlab is installed.")

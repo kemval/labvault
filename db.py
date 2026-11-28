@@ -58,11 +58,6 @@ def get_audit_actions():
 # ─────────────────────────────────────────────
 
 @st.cache_data(ttl=30)
-def get_all_samples(status_filter=None):
-    return samples.all_samples(status_filter)
-
-
-@st.cache_data(ttl=30)
 def find_samples(status=None, priority=None, search="", assigned_to=None,
                  unassigned=False, sort="newest", limit=25, offset=0):
     return samples.find_samples(status, priority, search, assigned_to, unassigned,
@@ -105,16 +100,6 @@ def sample_exists():
 # ─────────────────────────────────────────────
 
 @st.cache_data(ttl=30)
-def get_results_for_sample(sample_id: str):
-    return results.results_for_sample(sample_id)
-
-
-@st.cache_data(ttl=30)
-def get_all_results():
-    return results.all_results()
-
-
-@st.cache_data(ttl=30)
 def get_results_awaiting_review():
     return signatures.awaiting_review()
 
@@ -133,6 +118,35 @@ def get_oos_results(limit: int = 10):
 def get_schema_version():
     """Migrations run once per process at start-up, so this can't change while it runs."""
     return schema.current_version()
+
+
+@st.cache_data(ttl=30)
+def find_results(status=None, limit=100, offset=0):
+    return results.find_results(status, limit, offset)
+
+
+@st.cache_data(ttl=30)
+def get_loggable_samples(username=None):
+    return samples.loggable_samples(username)
+
+
+@st.cache_data(ttl=30)
+def count_samples_by_source():
+    return samples.count_by_source()
+
+
+@st.cache_data(ttl=30)
+def get_report_summary(statuses=None, priorities=None):
+    return results.report_summary(statuses, priorities)
+
+
+def get_report_rows(statuses=None, priorities=None):
+    """
+    Every sample and result a report on these filters contains. Not cached:
+    it runs only when an export is generated, and could be large.
+    """
+    return (samples.report_samples(statuses, priorities),
+            results.report_results(statuses, priorities))
 
 
 @st.cache_data(ttl=30)
@@ -167,11 +181,12 @@ def get_all_specifications():
 
 def clear_data_caches():
     """Samples, results and the audit trail — every data write affects these."""
-    for cached in (get_all_samples, find_samples, get_sample_detail, get_recent_samples,
+    for cached in (find_samples, get_sample_detail, get_recent_samples,
                    count_samples_by_status, count_samples_by_priority, count_simulated, sample_exists,
-                   get_results_for_sample, get_all_results, get_oos_results,
+                   get_oos_results,
                    get_results_awaiting_review, get_all_investigations,
-                   get_oos_breakdown):
+                   get_oos_breakdown, find_results, get_loggable_samples,
+                   count_samples_by_source, get_report_summary):
         cached.clear()
     clear_audit_cache()
 

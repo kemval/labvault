@@ -201,7 +201,7 @@ I approached this project as if I were building an internal tool for a real phar
 - **No specification, no numeric result**: entry is blocked until an admin defines one
 - **Second-person review with e-signature**: anyone except the analyst signs each result as approved or rejected, re-entering their password; a rejection needs a reason and the result stays on record but no longer counts. Wrong signature passwords count toward the lockout
 - **Completion needs review**: a sample completes only when every result is signed and at least one is approved
-- **Result viewer**: Filterable table with color-coded Pass/Fail styling and each result's review
+- **Result viewer**: Filterable table, 100 results per page, newest first, with color-coded Pass/Fail styling and each result's review
 - **10 pre-defined test types**: Potency, Dissolution, pH, Sterility, Particulates, Hardness, Friability, Disintegration, Water Content, Label Review
 
 ### 5. 🔎 OOS Investigations
@@ -505,6 +505,18 @@ python -m pytest
 ruff check .
 ```
 
+### Performance
+
+```bash
+python scripts/benchmark.py              # 10,000 samples; fails if any page takes > 1 s
+python scripts/benchmark.py --samples 50000 --budget 2
+```
+
+The benchmark builds a throwaway database (never `labvault.db`), signs in and renders every
+page from a cold cache. Large lists are paged in SQL and report totals are SQL aggregates, so
+pages stay well under 100 ms at 10,000 samples (ADR 0020). A test fails if the Test Results
+page's query count grows with the number of samples.
+
 CI (`.github/workflows/ci.yml`) runs ruff, the test suite on Python 3.11 and 3.12, a lock-file
 freshness check, and `pip-audit` on every pull request, all from the hashed lock files.
 
@@ -539,7 +551,7 @@ labvault/
 ├── repo/                   # Streamlit-free persistence: SQLite connection, schema +
 │   │                       #   migrations, users, samples, results, protocols, audit, FDA batch
 │   └── ...
-├── scripts/                # backup_db.py (backup/restore), dedupe_simulated_results.py
+├── scripts/                # backup_db.py (backup/restore), benchmark.py, dedupe_simulated_results.py
 ├── docs/                   # adr/ (architecture decisions), operations/ (runbooks)
 ├── tests/                  # pytest + Streamlit AppTest suite
 ├── requirements.in         # Allowed version ranges (edit these)

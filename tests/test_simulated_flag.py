@@ -144,7 +144,7 @@ def test_excel_marks_simulated_rows(lab_db, monkeypatch):
     lab_db.insert_test_result(result("M-1", "ok"))
 
     wb = openpyxl.load_workbook(io.BytesIO(build_excel(
-        lab_db.get_all_samples(), lab_db.get_all_results())))
+        *lab_db.get_report_rows())))
 
     for name in ("Samples", "Test Results"):
         ws = wb[name]
@@ -163,7 +163,7 @@ def test_pdf_states_simulated_counts(lab_db, monkeypatch):
     serve(monkeypatch, [record(1)])
     services.import_fda(limit=1)
 
-    pdf = build_pdf(lab_db.get_all_samples(), lab_db.get_all_results())
+    pdf = build_pdf(*lab_db.get_report_rows())
 
     assert b"Contains simulated demo data" in pdf
     assert b"D-0001-2024 *" in pdf
