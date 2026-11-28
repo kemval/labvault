@@ -23,7 +23,7 @@ were also re-created on every restart.
    to production by accident.
 5. No forced password change on first login: the operator chooses the initial
    admin password, so it is not a shared default. User management and
-   password changes are roadmap item 3.6.
+   password changes arrived with roadmap item 3.6 (ADR 0017).
 
 ## Consequences
 - The public demo must set `LABVAULT_DEMO_MODE = "true"` in its Streamlit

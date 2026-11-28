@@ -7,6 +7,7 @@ PAGES = [
     "📊  Dashboard", "🧫  Sample Intake", "🔬  Sample Tracking", "📋  Test Results",
     "🔎  OOS Investigations",
     "📄  Protocols", "📏  Specifications", "📈  Reports", "🕵️  Audit Trail", "⚙️  Admin",
+    "🔑  My Account",
 ]
 
 

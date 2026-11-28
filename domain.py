@@ -7,6 +7,8 @@ copy, and tests/test_domain.py fails if the two drift apart.
 No imports from the rest of the app — every layer may use this module.
 """
 
+import re
+
 # Samples
 STATUS_PENDING, STATUS_IN_PROGRESS, STATUS_COMPLETED, STATUS_REJECTED = (
     "Pending", "In Progress", "Completed", "Rejected")
@@ -125,7 +127,8 @@ def change_error(user, sample, new_status, new_assignee, assignee_role=None):
                                        and new_assignee == user["username"]):
             return "Only an admin can reassign a sample to someone else."
         if new_assignee is not None and assignee_role != ROLE_LAB_TECH:
-            return f"Samples can only be assigned to lab techs; {new_assignee} isn't one."
+            return (f"Samples can only be assigned to active lab techs; "
+                    f"{new_assignee} isn't one.")
     return transition_error(user, sample, new_status)
 
 
@@ -215,6 +218,46 @@ def evaluate_result(test_name, value, outcome, spec):
 MAX_FAILED_LOGINS = 5        # consecutive failures before the account is locked
 LOCKOUT_MINUTES = 15
 SESSION_IDLE_MINUTES = 30    # idle time after which the next action signs the user out
+
+
+# ─────────────────────────────────────────────
+# ACCOUNT MANAGEMENT (audit 3.6, ADR 0017)
+# ─────────────────────────────────────────────
+
+MIN_PASSWORD_LENGTH = 12
+LOGIN_ROLES = (ROLE_ADMIN, ROLE_LAB_TECH)          # roles an admin can give an account
+_USERNAME = re.compile(r"[a-z][a-z0-9._-]{2,31}")
+
+
+def username_error(username):
+    if not _USERNAME.fullmatch(username or ""):
+        return ("Usernames are 3–32 characters: lowercase letters, digits, '.', '_' or '-', "
+                "starting with a letter.")
+    return None
+
+
+def password_error(password, username):
+    """Why `password` can't be set for `username`, or None."""
+    if len(password or "") < MIN_PASSWORD_LENGTH:
+        return f"Passwords must be at least {MIN_PASSWORD_LENGTH} characters."
+    if password.strip().lower() == (username or "").lower():
+        return "The password can't be the username."
+    return None
+
+
+def account_change_error(actor, target):
+    """
+    Why `actor` may not manage `target` (an account dict, or None), or None.
+    Admins manage other login accounts — never their own, so the acting
+    admin always stays an active admin and at least one remains.
+    """
+    if not is_admin(actor):
+        return "Only an admin can manage accounts."
+    if target is None:
+        return "That account doesn't exist."
+    if target["username"] == actor["username"]:
+        return "You can't change your own account here; ask another admin."
+    return None
 
 
 # ─────────────────────────────────────────────

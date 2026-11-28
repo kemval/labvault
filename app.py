@@ -15,7 +15,7 @@ from db import sample_exists, count_simulated, clear_user_caches
 from repo.protocols import seed_protocols
 from repo.specifications import seed_specifications
 from repo.schema import init_db
-from repo.users import DEMO_USERS, seed_users
+from repo.users import DEMO_USERS, seed_users, session_account
 import services
 
 # ─────────────────────────────────────────────
@@ -230,6 +230,9 @@ def show_login():
         if st.session_state.pop("timed_out", False):
             st.info(f"You were signed out after {SESSION_IDLE_MINUTES} minutes without "
                     "activity. Sign in again to continue.")
+        if st.session_state.pop("account_disabled", False):
+            st.warning("You were signed out because your account was disabled. "
+                       "Contact an administrator.")
         st.markdown("#### Sign in to your account")
         username = st.text_input("Username", placeholder="e.g. admin")
         password = st.text_input("Password", type="password", placeholder="••••••••")
@@ -278,6 +281,7 @@ PAGES = [
     ("📈  Reports",         "Reports",         "views.reports",         False),
     ("🕵️  Audit Trail",     "Audit Trail",     "views.audit_trail",     False),
     ("⚙️  Admin",           "Admin",           "views.admin",           True),
+    ("🔑  My Account",      "My Account",      "views.account",         False),
 ]
 
 
@@ -317,11 +321,7 @@ def show_sidebar():
             st.markdown("---")
 
         # Sign out clears session state and forces a rerun back to the login screen
-        if st.button("Sign Out", use_container_width=True):
-            services.sign_out(user["username"])
-            st.session_state.logged_in = False
-            st.session_state.user = None
-            st.rerun()
+        sign_out_button()
 
 
 # ─────────────────────────────────────────────
@@ -356,12 +356,52 @@ def end_idle_session():
     st.session_state.last_activity = now
 
 
+def refresh_account():
+    """
+    Re-read the signed-in account on every rerun, so an admin disabling it
+    or changing its role applies at the user's next click (ADR 0017).
+    """
+    username = st.session_state.user["username"]
+    account = session_account(username)
+    if account is None or not account["active"]:
+        services.log_event(username, "LOGOUT", "Auth", username,
+                           "Signed out: account disabled")
+        st.session_state.logged_in = False
+        st.session_state.user = None
+        st.session_state.account_disabled = True
+    else:
+        st.session_state.user = account
+
+
+def sign_out_button():
+    if st.button("Sign Out", use_container_width=True):
+        services.sign_out(st.session_state.user["username"])
+        st.session_state.logged_in = False
+        st.session_state.user = None
+        st.rerun()
+
+
+def show_forced_password_change():
+    """A password set by an admin must be replaced before anything else."""
+    from views.account import password_form
+    st.markdown("#### Choose a new password")
+    st.info("An administrator set a temporary password for your account. "
+            "Choose your own password to continue.")
+    password_form(st.session_state.user, forced=True)
+    with st.sidebar:
+        sign_out_button()
+
+
 if st.session_state.logged_in:
     end_idle_session()
+if st.session_state.logged_in:
+    refresh_account()
 
 if not st.session_state.logged_in:
     # Not logged in yet — show the login screen and stop here
     show_login()
+elif st.session_state.user["must_change_password"]:
+    show_forced_password_change()
 else:
     show_sidebar()
 

@@ -511,6 +511,19 @@ def _m008_oos_investigations(conn):
         ORDER BY r.id""")
 
 
+def _m009_user_management(conn):
+    """
+    Audit 3.6: accounts can be disabled (never deleted: results, signatures
+    and the audit trail refer to them), and a password set by an admin must
+    be changed at the next sign-in (ADR 0017). Existing accounts stay active
+    and keep their passwords.
+    """
+    conn.execute("ALTER TABLE users ADD COLUMN active INTEGER NOT NULL DEFAULT 1 "
+                 "CHECK (active IN (0, 1))")
+    conn.execute("ALTER TABLE users ADD COLUMN must_change_password INTEGER NOT NULL "
+                 "DEFAULT 0 CHECK (must_change_password IN (0, 1))")
+
+
 MIGRATIONS = [
     _m001_simulated_flag,
     _m002_sample_version,
@@ -520,6 +533,7 @@ MIGRATIONS = [
     _m006_password_security,
     _m007_result_signatures,
     _m008_oos_investigations,
+    _m009_user_management,
 ]
 
 

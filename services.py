@@ -36,11 +36,18 @@ class PermissionDeniedError(ServiceError):
 
 def _actor(conn, username: str) -> dict:
     """The acting user as stored — the role comes from the database, never the caller."""
-    row = conn.execute("SELECT username, role FROM users WHERE username = ?",
+    row = conn.execute("SELECT username, role, active FROM users WHERE username = ?",
                        (username,)).fetchone()
-    if row is None or row["role"] == ROLE_SYSTEM:
+    if row is None or row["role"] == ROLE_SYSTEM or not row["active"]:
         raise PermissionDeniedError(f"{username} is not an account that can change data.")
     return dict(row)
+
+
+def _active_role(conn, username: str):
+    """The role of an active account, or None (unknown or disabled)."""
+    row = conn.execute("SELECT role FROM users WHERE username = ? AND active = 1",
+                       (username,)).fetchone()
+    return row["role"] if row else None
 
 
 _ID_ATTEMPTS = 5
@@ -64,6 +71,11 @@ def register_sample(data: dict, user: str) -> str:
         sample = {**data, "sample_id": _new_sample_id(),
                   "status": STATUS_PENDING, "source": SOURCE_MANUAL}
         with core.transaction() as conn:
+            _actor(conn, user)
+            assignee = sample.get("assigned_to")
+            if assignee and _active_role(conn, assignee) != domain.ROLE_LAB_TECH:
+                raise ServiceError(f"Samples can only be assigned to active lab techs; "
+                                   f"{assignee} isn't one.")
             if not samples.insert_sample(sample, conn=conn):
                 continue  # ID collision — rolls back nothing, try a new ID
             audit.write_audit(conn, user, "SAMPLE_CREATED", "Sample Intake",
@@ -121,10 +133,8 @@ def _update_sample(sample_id, expected_version, user, status, assigned_to, reaso
                             f"to {new_assignee or 'Unassigned'}"))
         if not changes:
             return False
-        assignee = conn.execute("SELECT role FROM users WHERE username = ?",
-                                (new_assignee,)).fetchone() if new_assignee else None
-        denied = domain.change_error(actor, dict(row), new_status, new_assignee,
-                                     assignee["role"] if assignee else None)
+        assignee_role = _active_role(conn, new_assignee) if new_assignee else None
+        denied = domain.change_error(actor, dict(row), new_status, new_assignee, assignee_role)
         if denied:
             raise PermissionDeniedError(denied)
         if not reason:
@@ -371,6 +381,7 @@ def create_protocol(data: dict, user: str) -> int:
     """Create a protocol and its audit row together; returns its id."""
     protocol = {**data, "created_by": user, "created_at": core.utc_now()}
     with core.transaction() as conn:
+        _actor(conn, user)
         protocol_id = protocols.insert_protocol(protocol, conn=conn)
         audit.write_audit(conn, user, "PROTOCOL_CREATED", "Protocols", protocol["name"],
                        f"New protocol: {protocol['name']} for {protocol['sample_type']}")
@@ -466,6 +477,11 @@ def sign_in(username: str, password: str):
             audit.write_audit(conn, SYSTEM_USER, "LOGIN_FAILED", "Auth", target,
                               "Invalid username or password")
             user = None
+        elif not account["active"]:
+            passwords.burn_time(password)      # same work, same message as a wrong password
+            audit.write_audit(conn, username, "LOGIN_FAILED", "Auth", target,
+                              "Account disabled")
+            user = None
         elif _check_password(conn, account, password, "LOGIN_FAILED", "Auth", target):
             audit.write_audit(conn, username, "LOGIN", "Auth", username, "Signed in")
             user = users.public(account)
@@ -481,3 +497,158 @@ def sign_out(username: str, idle: bool = False):
                   f"Signed out after {domain.SESSION_IDLE_MINUTES} minutes idle")
     else:
         log_event(username, "LOGOUT", "Auth", username, "Signed out")
+
+
+# ─────────────────────────────────────────────
+# ACCOUNTS (audit 3.6, ADR 0017)
+# ─────────────────────────────────────────────
+
+def _managed_account(conn, admin: str, username: str) -> dict:
+    """The account `admin` is about to change, after the permission check."""
+    account = users.login_account(conn, username)
+    denied = domain.account_change_error(_actor(conn, admin), account)
+    if denied:
+        raise PermissionDeniedError(denied)
+    return account
+
+
+def _required(reason: str) -> str:
+    reason = (reason or "").strip()
+    if not reason:
+        raise ServiceError("Enter a reason — it is recorded in the audit trail.")
+    return reason
+
+
+def _no_open_samples(conn, username: str, change: str):
+    """Nothing may be left assigned to someone who can no longer work on it."""
+    open_ids = samples.open_samples_assigned(conn, username)
+    if open_ids:
+        raise ServiceError(
+            f"{username} still has {len(open_ids)} open sample(s) assigned: "
+            f"{', '.join(open_ids[:10])}{' …' if len(open_ids) > 10 else ''}. "
+            f"Reassign them on Sample Tracking before you {change}.")
+
+
+def _check_new_password(username: str, password: str):
+    error = domain.password_error(password, username)
+    if error:
+        raise ServiceError(error)
+
+
+def create_user(username: str, role: str, temporary_password: str, admin: str):
+    """A new login account; its temporary password must be changed at first sign-in."""
+    username = (username or "").strip()
+    error = domain.username_error(username)
+    if error:
+        raise ServiceError(error)
+    if role not in domain.LOGIN_ROLES:
+        raise ServiceError(f"Unknown role: {role}.")
+    _check_new_password(username, temporary_password)
+    with core.transaction() as conn:
+        if not domain.is_admin(_actor(conn, admin)):
+            raise PermissionDeniedError("Only an admin can manage accounts.")
+        if conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone():
+            raise ServiceError(f"The username {username} is already taken.")
+        users.insert_user(conn, username, passwords.hash_password(temporary_password), role)
+        audit.write_audit(conn, admin, "USER_CREATED", "Users", username,
+                          f"Created {username} as {role}; temporary password must be changed",
+                          new_value=role)
+    db.clear_user_caches()
+    db.clear_audit_cache()
+
+
+def set_user_active(username: str, active: bool, admin: str, reason: str):
+    """Disable or re-enable an account. A disabled account can't sign in or
+    change data; it is kept because records refer to it."""
+    reason = _required(reason)
+    with core.transaction() as conn:
+        account = _managed_account(conn, admin, username)
+        if bool(account["active"]) == bool(active):
+            return False
+        if not active:
+            _no_open_samples(conn, username, "disable the account")
+        users.set_active(conn, username, active)
+        audit.write_audit(conn, admin, "USER_ENABLED" if active else "USER_DISABLED", "Users",
+                          username, f"{'Enabled' if active else 'Disabled'} {username}",
+                          old_value="Active" if not active else "Disabled",
+                          new_value="Active" if active else "Disabled", reason=reason)
+    db.clear_user_caches()
+    db.clear_audit_cache()
+    return True
+
+
+def change_role(username: str, role: str, admin: str, reason: str):
+    """Change a login account's role. Samples are assigned only to lab techs,
+    so a tech with open samples can't become an admin until they're reassigned."""
+    reason = _required(reason)
+    if role not in domain.LOGIN_ROLES:
+        raise ServiceError(f"Unknown role: {role}.")
+    with core.transaction() as conn:
+        account = _managed_account(conn, admin, username)
+        if account["role"] == role:
+            return False
+        if account["role"] == domain.ROLE_LAB_TECH:
+            _no_open_samples(conn, username, "change the role")
+        users.set_role(conn, username, role)
+        audit.write_audit(conn, admin, "USER_ROLE_CHANGED", "Users", username,
+                          f"Role of {username} changed", old_value=account["role"],
+                          new_value=role, reason=reason)
+    db.clear_user_caches()
+    db.clear_audit_cache()
+    return True
+
+
+def reset_password(username: str, temporary_password: str, admin: str, reason: str):
+    """Set a temporary password the user must change at next sign-in; clears any lockout."""
+    reason = _required(reason)
+    _check_new_password(username, temporary_password)
+    with core.transaction() as conn:
+        _managed_account(conn, admin, username)
+        users.set_password(conn, username, passwords.hash_password(temporary_password),
+                           must_change=True)
+        audit.write_audit(conn, admin, "PASSWORD_RESET", "Users", username,
+                          f"Temporary password set for {username}; must be changed at "
+                          "next sign-in", reason=reason)
+    db.clear_user_caches()
+    db.clear_audit_cache()
+
+
+def unlock_user(username: str, admin: str, reason: str):
+    """End a lockout (ADR 0013) before it expires. Returns False if not locked."""
+    reason = _required(reason)
+    with core.transaction() as conn:
+        account = _managed_account(conn, admin, username)
+        locked = account["locked_until"] and account["locked_until"] > core.utc_now()
+        if not (locked or account["failed_logins"]):
+            return False
+        users.unlock(conn, username)
+        audit.write_audit(conn, admin, "ACCOUNT_UNLOCKED", "Users", username,
+                          f"Unlocked {username} ({account['failed_logins']} failed attempts, "
+                          f"locked until {account['locked_until'] or '—'})", reason=reason)
+    db.clear_user_caches()
+    db.clear_audit_cache()
+    return True
+
+
+def change_password(username: str, current: str, new: str):
+    """
+    A user changes their own password; required after an admin set it.
+    The current password is checked with the sign-in lockout policy.
+    """
+    _check_new_password(username, new)
+    if new == current:
+        raise ServiceError("Choose a password different from the current one.")
+    with core.transaction() as conn:
+        _actor(conn, username)
+        ok = _check_password(conn, users.login_account(conn, username), current,
+                             "PASSWORD_CHANGE_FAILED", "Auth", username)
+        if ok:
+            users.set_password(conn, username, passwords.hash_password(new), must_change=False)
+            audit.write_audit(conn, username, "PASSWORD_CHANGED", "Auth", username,
+                              "Changed own password")
+    # A failed attempt is committed (count + audit) before refusing.
+    db.clear_audit_cache()
+    db.clear_user_caches()
+    if not ok:
+        raise SignatureError("Current password is wrong, or the account is locked after "
+                             "repeated failures. The password was not changed.")

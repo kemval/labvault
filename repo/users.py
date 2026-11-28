@@ -3,7 +3,7 @@ repo/users.py — accounts and authentication.
 """
 
 from config import ConfigError
-from domain import ROLE_ADMIN, ROLE_LAB_TECH, ROLE_SYSTEM
+from domain import MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_LAB_TECH, ROLE_SYSTEM
 from repo import passwords
 from repo.core import get_conn
 
@@ -17,7 +17,7 @@ DEMO_USERS = [
 ]
 
 
-MIN_ADMIN_PASSWORD_LENGTH = 12
+MIN_ADMIN_PASSWORD_LENGTH = MIN_PASSWORD_LENGTH
 
 
 def seed_users(demo: bool, admin_password=None):
@@ -115,21 +115,62 @@ def public(account: dict) -> dict:
     return {k: v for k, v in account.items() if k != "password"}
 
 
+_ACCOUNT_COLUMNS = "username, role, active, must_change_password, failed_logins, locked_until"
+
+
 def all_users():
-    """Fetch all users — just username and role, no password hashes leaving the DB."""
+    """Every account with its state, ordered by name — no password hashes leave the DB."""
     conn = get_conn()
-    rows = conn.execute("SELECT username, role FROM users").fetchall()
+    rows = conn.execute(f"SELECT {_ACCOUNT_COLUMNS} FROM users ORDER BY username").fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
+def session_account(username: str):
+    """The signed-in user's current account state (role, active, …), or None.
+    Read on every rerun so a disable or role change applies at once."""
+    conn = get_conn()
+    try:
+        row = conn.execute(f"SELECT id, {_ACCOUNT_COLUMNS} FROM users "
+                           "WHERE username = ? AND role != ?", (username, ROLE_SYSTEM)).fetchone()
+    finally:
+        conn.close()
+    return dict(row) if row else None
+
+
+def insert_user(conn, username: str, password_hash: str, role: str):
+    """A new account whose (admin-chosen) password must be changed at first sign-in."""
+    conn.execute("INSERT INTO users (username, password, role, must_change_password) "
+                 "VALUES (?, ?, ?, 1)", (username, password_hash, role))
+
+
+def set_active(conn, username: str, active: bool):
+    conn.execute("UPDATE users SET active = ? WHERE username = ?", (int(active), username))
+
+
+def set_role(conn, username: str, role: str):
+    conn.execute("UPDATE users SET role = ? WHERE username = ?", (role, username))
+
+
+def set_password(conn, username: str, password_hash: str, must_change: bool):
+    """Store a new password and clear any lockout."""
+    conn.execute("UPDATE users SET password = ?, must_change_password = ?, failed_logins = 0, "
+                 "locked_until = NULL WHERE username = ?",
+                 (password_hash, int(must_change), username))
+
+
+def unlock(conn, username: str):
+    conn.execute("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE username = ?",
+                 (username,))
+
+
 def lab_techs():
     """
-    Return a list of lab tech usernames — used to populate assignment dropdowns.
+    Active lab tech usernames — used to populate assignment dropdowns.
     """
     conn = get_conn()
     rows = conn.execute(
-        "SELECT username FROM users WHERE role = ?", (ROLE_LAB_TECH,)
+        "SELECT username FROM users WHERE role = ? AND active = 1", (ROLE_LAB_TECH,)
     ).fetchall()
     conn.close()
     return [r["username"] for r in rows]

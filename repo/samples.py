@@ -2,7 +2,7 @@
 repo/samples.py — sample rows.
 """
 
-from domain import PRIORITIES, REVIEW_APPROVED
+from domain import PRIORITIES, REVIEW_APPROVED, TERMINAL_STATUSES
 from repo.core import get_conn, run_in
 
 
@@ -110,6 +110,14 @@ def find_samples(status=None, priority=None, search="", assigned_to=None,
                         f"ORDER BY {order} LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
     conn.close()
     return [dict(r) for r in rows], total
+
+
+def open_samples_assigned(conn, username: str) -> list:
+    """IDs of samples assigned to `username` that are not Completed or Rejected."""
+    marks = ", ".join("?" * len(TERMINAL_STATUSES))
+    return [r[0] for r in conn.execute(
+        f"SELECT sample_id FROM samples WHERE assigned_to = ? AND status NOT IN ({marks}) "
+        "ORDER BY sample_id", (username, *TERMINAL_STATUSES))]
 
 
 def sample_detail(sample_id: str):

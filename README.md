@@ -242,8 +242,14 @@ I approached this project as if I were building an internal tool for a real phar
 
 ### 10. ⚙️ Admin Panel
 - System overview with key metrics
-- Registered user list with role badges
-- Default credential reference
+- Account table: role, active/disabled, lockout and forced-password-change state
+- User management (ADR 0017): create accounts with a temporary password, reset passwords,
+  unlock locked accounts, disable/enable, change roles. Each change needs a reason and is
+  audited; accounts are disabled, never deleted; an admin can't change their own account;
+  disabling (or promoting) a tech with open samples is refused until they're reassigned
+- **My Account** page for every user to change their own password; a temporary password
+  must be changed before anything else
+- Default credential reference (demo mode)
 - FDA import statistics
 
 ---
@@ -458,6 +464,10 @@ Settings are read from environment variables or `.streamlit/secrets.toml`.
 With neither setting, the app stops with a configuration error and does not create any accounts.
 In secure mode it also refuses to start on a database that still contains demo passwords.
 
+After the first start, manage accounts on the **Admin** page (ADR 0017). Keep at least two
+admin accounts: an admin can't reset or unlock their own account, so a sole admin who loses
+their password can only be recovered by editing the database.
+
 ### Demo Credentials (demo mode only)
 
 | Role | Username | Password |
@@ -534,7 +544,8 @@ labvault/
 │   ├── investigations.py   # OOS investigations, closed by an admin with an e-signature
 │   ├── reports.py          # PDF/Excel report generation with filters
 │   ├── audit_trail.py      # Append-only audit log, filtered and paged
-│   └── admin.py            # System overview & user management
+│   ├── admin.py            # System overview & account management
+│   └── account.py          # Change your own password
 ├── README.md               # This file
 ├── LICENSE                 # MIT License
 └── .gitignore              # Git ignore rules
