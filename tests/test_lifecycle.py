@@ -68,8 +68,8 @@ def test_assignee_options():
     (KEMBLY, sample(), PENDING, None, None, "Only an admin can reassign"),    # can't drop it
     (ADMIN, sample(), PENDING, "carlos", "lab_tech", None),
     (ADMIN, sample(), PENDING, None, None, None),
-    (ADMIN, sample(), PENDING, "admin", "admin", "only be assigned to lab techs"),
-    (ADMIN, sample(), PENDING, "simulator", "system", "only be assigned to lab techs"),
+    (ADMIN, sample(), PENDING, "admin", "admin", "only be assigned to active lab techs"),
+    (ADMIN, sample(), PENDING, "simulator", "system", "only be assigned to active lab techs"),
     (ADMIN, sample(DONE), DONE, "carlos", "lab_tech", "can't be reassigned"),
     (ADMIN, sample(DONE), WIP, "carlos", "lab_tech", None),                   # reopen + reassign
 ])

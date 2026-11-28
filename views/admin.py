@@ -3,8 +3,13 @@ pages/admin.py — Admin panel: user list and system info
 Only accessible to users with role='admin'. Lab techs get a hard stop at the door.
 """
 
+import pandas as pd
 import streamlit as st
-from domain import ROLE_ADMIN, ROLE_LAB_TECH, ROLE_SYSTEM, SOURCE_FDA, STATUS_COMPLETED
+
+import services
+from domain import (LOGIN_ROLES, MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_LAB_TECH, ROLE_SYSTEM,
+                    SOURCE_FDA, STATUS_COMPLETED)
+from repo.core import utc_now
 from views.ui import page_header
 from config import demo_mode
 from db import get_all_users, get_all_samples, count_samples_by_status, count_oos_results
@@ -38,15 +43,13 @@ def show():
 
     st.markdown("---")
 
-    # ── USER LIST ────────────────────────────────────────────
-    # Show who's in the system with color-coded role badges —
-    # red for admin, blue for lab tech. Simple but effective.
-    st.markdown("#### Registered Users")
-    users = get_all_users()
-    for u in users:
-        role_badge = {ROLE_ADMIN: "🔴 Admin", ROLE_LAB_TECH: "🔵 Lab Tech",
-                      ROLE_SYSTEM: "⚪ System (cannot log in)"}.get(u["role"], u["role"])
-        st.markdown(f"- **{u['username']}** — {role_badge}")
+    # ── ACCOUNTS (ADR 0017) ──────────────────────────────────
+    st.markdown("#### Accounts")
+    accounts = get_all_users()
+    _account_table(accounts)
+    _manage_account(user, [a for a in accounts
+                           if a["role"] != ROLE_SYSTEM and a["username"] != user["username"]])
+    _create_account(user)
 
     # Demo credentials are public by design — only shown on demo instances.
     if demo_mode():
@@ -57,6 +60,93 @@ def show():
             f"{label[r]:<9} →  username: {u:<8} password: {p}" for u, p, r in DEMO_USERS
         ))
 
-    # There is no user-management UI yet (roadmap item 3.6).
-    st.info("User management is not available in the app yet. Accounts are created "
-            "on first start only — see the Configuration section of the README.")
+
+ROLE_LABELS = {ROLE_ADMIN: "Admin", ROLE_LAB_TECH: "Lab Tech",
+               ROLE_SYSTEM: "System (cannot log in)"}
+
+
+def _is_locked(a):
+    return bool(a["locked_until"]) and a["locked_until"] > utc_now()
+
+
+def _account_table(accounts):
+    st.dataframe(pd.DataFrame([{
+        "Username": a["username"], "Role": ROLE_LABELS.get(a["role"], a["role"]),
+        "Status": "Active" if a["active"] else "Disabled",
+        "Locked until": a["locked_until"] if _is_locked(a) else "",
+        "Failed sign-ins": a["failed_logins"],
+        "Must change password": "Yes" if a["must_change_password"] else "",
+    } for a in accounts]), hide_index=True, width="stretch")
+
+
+def _run(action, *args, done):
+    """Call a service; show its outcome. `done` is the success message."""
+    try:
+        changed = action(*args)
+    except services.ServiceError as e:
+        st.error(str(e))
+        return
+    if changed is False:
+        st.info("Nothing to change.")
+        return
+    st.session_state["admin_flash"] = done
+    st.rerun()
+
+
+def _manage_account(user, accounts):
+    st.markdown("##### Manage an account")
+    if flash := st.session_state.pop("admin_flash", None):
+        st.success(flash)
+    if not accounts:
+        st.caption("No other accounts yet. You can't change your own account here.")
+        return
+    by_name = {a["username"]: a for a in accounts}
+    name = st.selectbox("Account", list(by_name), key="acct_pick",
+                        help="Your own account isn't listed: another admin must change it.")
+    a = by_name[name]
+    admin = user["username"]
+
+    with st.form(f"acct_form_{name}", clear_on_submit=True):
+        action = st.radio("Action", [
+            "Reset password", "Unlock", "Disable" if a["active"] else "Enable", "Change role"],
+            horizontal=True, key=f"acct_action_{name}")
+        role = st.selectbox("New role (for Change role)", LOGIN_ROLES,
+                            index=LOGIN_ROLES.index(a["role"]), format_func=ROLE_LABELS.get,
+                            key=f"acct_role_{name}")
+        temp = st.text_input(f"Temporary password (for Reset password; at least "
+                             f"{MIN_PASSWORD_LENGTH} characters)", type="password",
+                             key=f"acct_temp_{name}")
+        reason = st.text_input("Reason *", key=f"acct_reason_{name}",
+                               help="Required — recorded in the audit trail.")
+        submitted = st.form_submit_button("Apply", type="primary")
+    if not submitted:
+        if _is_locked(a):
+            st.warning(f"{name} is locked until {a['locked_until']} (UTC).")
+        return
+    if action == "Reset password":
+        _run(services.reset_password, name, temp, admin, reason,
+             done=f"Temporary password set for {name}. Give it to them securely; "
+                  "they must change it at their next sign-in.")
+    elif action == "Unlock":
+        _run(services.unlock_user, name, admin, reason, done=f"{name} is unlocked.")
+    elif action in ("Disable", "Enable"):
+        _run(services.set_user_active, name, action == "Enable", admin, reason,
+             done=f"{name} is {'enabled' if action == 'Enable' else 'disabled'}.")
+    else:
+        _run(services.change_role, name, role, admin, reason,
+             done=f"{name} is now {ROLE_LABELS[role]}.")
+
+
+def _create_account(user):
+    with st.expander("➕ Create an account"):
+        with st.form("acct_create", clear_on_submit=True):
+            username = st.text_input("Username *", key="new_username")
+            role = st.selectbox("Role", LOGIN_ROLES, format_func=ROLE_LABELS.get,
+                                index=LOGIN_ROLES.index(ROLE_LAB_TECH), key="new_role")
+            temp = st.text_input(f"Temporary password * (at least {MIN_PASSWORD_LENGTH} "
+                                 "characters)", type="password", key="new_temp")
+            submitted = st.form_submit_button("Create account", type="primary")
+        if submitted:
+            _run(services.create_user, username.strip(), role, temp, user["username"],
+                 done=f"Created {username.strip()}. They must change the temporary "
+                      "password at first sign-in.")

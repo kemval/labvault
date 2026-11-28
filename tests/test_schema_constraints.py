@@ -5,7 +5,7 @@ import pytest
 
 import services
 from fake_fda import record, serve
-from repo import core, passwords, schema, users
+from repo import core, passwords, protocols, schema, users
 from conftest import insert_legacy_result
 from repo.results import insert_test_result
 from repo.samples import insert_sample
@@ -69,8 +69,10 @@ def test_user_role_is_checked(lab_db):
     lambda: insert_sample({**SAMPLE, "assigned_to": "nobody"}),
     lambda: (insert_sample(SAMPLE), insert_test_result({**RESULT, "tested_by": "nobody"})),
     lambda: services.log_event("nobody", "REPORT_EXPORTED", "Reports"),
-    lambda: services.create_protocol({"name": "P", "sample_type": "Tablet",
-                                      "description": "", "steps": ""}, "nobody"),
+    # repo level: services refuse unknown accounts before the database sees them
+    lambda: protocols.insert_protocol({"name": "P", "sample_type": "Tablet", "description": "",
+                                       "steps": "", "created_by": "nobody",
+                                       "created_at": "2026-01-01"}),
 ])
 def test_writes_must_name_a_real_account(lab_db, write):
     with pytest.raises(sqlite3.IntegrityError):
@@ -185,9 +187,9 @@ def test_migration_keeps_every_row_and_leaves_old_timestamps_empty(v2_db):
     # + created_at (migration 3), spec_id and spec_version (migration 5): all empty
     assert {r[width:] for r in after["test_results"]} == {(None, None, None)}
     assert [r[:7] for r in after["audit_trail"]] == before["audit_trail"]   # + 3 new columns
-    # + failed_logins and locked_until (migration 6)
+    # + failed_logins and locked_until (migration 6); active, must_change_password (9)
     assert [r[:4] for r in after["users"][:len(before["users"])]] == before["users"]
-    assert {r[4:] for r in after["users"]} == {(0, None)}
+    assert {r[4:] for r in after["users"]} == {(0, None, 1, 0)}
     assert {r[1] for r in after["users"][len(before["users"]):]} == {"system", "simulator"}
     assert rows("PRAGMA foreign_key_check") == []
     assert {r["name"] for r in rows("SELECT name FROM sqlite_master")} >= {

@@ -25,6 +25,6 @@ Passwords were stored as unsalted SHA-256: fast to brute-force, and identical pa
 - **Idle timeout:** the first interaction after 30 minutes idle (`domain.SESSION_IDLE_MINUTES`) signs the user out, writes `SESSION_TIMEOUT`, and the login screen explains why. Streamlit only runs on interaction, so that action is refused rather than the page closing by itself.
 
 ## Consequences
-- Anyone who knows a username can lock that account for up to 15 minutes. This is accepted, and the lock clears itself. There is no admin unlock until user management (3.6).
+- Anyone who knows a username can lock that account for up to 15 minutes. This is accepted, and the lock clears itself. An admin can unlock an account early since 3.6 (ADR 0017).
 - Tests set a tiny scrypt cost (`conftest.cheap_password_hashing`); the cost stored in each hash keeps verification correct.
 - The new auth events are in `SESSION_ACTIONS`, so they appear in the audit trail but not in the dashboard's activity feed.
