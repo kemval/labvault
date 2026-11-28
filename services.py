@@ -14,7 +14,7 @@ import db  # cache invalidation only
 import domain
 from domain import ROLE_SYSTEM, SOURCE_MANUAL, STATUS_PENDING, SYSTEM_USER
 import seed
-from repo import audit, core, fda_import, protocols, results, samples, users
+from repo import audit, core, fda_import, protocols, results, samples, specifications, users
 
 
 class ServiceError(Exception):
@@ -148,25 +148,115 @@ def _update_sample(sample_id, expected_version, user, status, assigned_to, reaso
 # TEST RESULTS
 # ─────────────────────────────────────────────
 
-def record_result(data: dict, user: str, audit_detail: str) -> int:
+def record_result(data: dict, user: str) -> dict:
     """
-    Store a validated test result and its audit row together; returns its id.
-    Only the assignee or an admin, and only while the sample is In Progress.
+    Evaluate and store a test result with its audit row; returns
+    {id, status, spec}. `data` holds sample_id, test_name, result_value,
+    outcome, tested_at and notes — never limits: for a numeric test the
+    current specification for the sample's type × test is looked up here,
+    and the result records which version it was judged against (ADR 0012).
+    Only the assignee or an admin, while the sample is In Progress (ADR 0011).
     """
     with core.transaction() as conn:
         actor = _actor(conn, user)
-        sample = conn.execute("SELECT status, assigned_to FROM samples WHERE sample_id = ?",
-                              (data["sample_id"],)).fetchone()
+        sample = conn.execute(
+            "SELECT status, assigned_to, sample_type FROM samples WHERE sample_id = ?",
+            (data["sample_id"],)).fetchone()
         if sample is None:
             raise NotFoundError(f"Sample {data['sample_id']} no longer exists.")
         denied = domain.result_entry_error(actor, dict(sample))
         if denied:
             raise PermissionDeniedError(denied)
-        result_id = results.insert_test_result({**data, "tested_by": user}, conn=conn)
-        audit.write_audit(conn, user, "RESULT_LOGGED", "Test Results",
-                       data["sample_id"], audit_detail)
+
+        test, value, outcome = data["test_name"], data.get("result_value"), data.get("outcome")
+        spec = (specifications.find_spec(sample["sample_type"], test, conn)
+                if test in domain.QUANTITATIVE_TESTS else None)
+        status, errors = domain.evaluate_result(test, value, outcome, spec)
+        if errors:
+            raise ServiceError(" ".join(errors))
+
+        if spec:
+            limits = (f"spec v{spec['version']}: {_fmt_limit(spec['spec_min'])} to "
+                      f"{_fmt_limit(spec['spec_max'])} {spec['unit']}")
+            shown = f"{value} {spec['unit']}"
+        else:
+            limits, shown = "pass/fail", outcome
+        result_id = results.insert_test_result({
+            "sample_id": data["sample_id"], "test_name": test, "result_value": value,
+            "result_unit": spec["unit"] if spec else "N/A",
+            "spec_min": spec["spec_min"] if spec else None,
+            "spec_max": spec["spec_max"] if spec else None,
+            "spec_id": spec["id"] if spec else None,
+            "spec_version": spec["version"] if spec else None,
+            "status": status, "tested_by": user,
+            "tested_at": data["tested_at"], "notes": data.get("notes", ""),
+        }, conn=conn)
+        audit.write_audit(conn, user, "RESULT_LOGGED", "Test Results", data["sample_id"],
+                          f"{test}: {shown} ({limits}) → {status}")
     db.clear_data_caches()
-    return result_id
+    return {"id": result_id, "status": status, "spec": spec, "shown": shown}
+
+
+def _fmt_limit(value):
+    return "—" if value is None else f"{value:g}"
+
+
+# ─────────────────────────────────────────────
+# SPECIFICATIONS
+# ─────────────────────────────────────────────
+
+def save_specification(sample_type: str, test_name: str, spec_min, spec_max, unit: str,
+                       user: str, reason: str = "", expected_version: int = None) -> dict:
+    """
+    Create or change the specification for sample type × test (admin only).
+    A change needs a reason and the version the admin was looking at
+    (`expected_version`); it is audited with old and new limits. Results
+    already recorded keep the limits they were judged against.
+    """
+    reason = (reason or "").strip()
+    if sample_type not in domain.SAMPLE_TYPES:
+        raise ServiceError(f"Unknown sample type: {sample_type}.")
+    if test_name not in domain.QUANTITATIVE_TESTS:
+        raise ServiceError(f"{test_name} is not a numeric test, so it has no specification.")
+    if unit not in domain.UNITS:
+        raise ServiceError(f"Unknown unit: {unit}.")
+    invalid = domain.spec_error(spec_min, spec_max)
+    if invalid:
+        raise ServiceError(invalid)
+
+    new_text = f"{_fmt_limit(spec_min)} to {_fmt_limit(spec_max)} {unit}"
+    target = f"{sample_type} × {test_name}"
+    with core.transaction() as conn:
+        if not domain.is_admin(_actor(conn, user)):
+            raise PermissionDeniedError("Only an admin can change specifications.")
+        current = specifications.find_spec(sample_type, test_name, conn)
+        if current is None:
+            specifications.insert_spec(conn, sample_type, test_name, spec_min, spec_max,
+                                       unit, user)
+            audit.write_audit(conn, user, "SPEC_CREATED", "Specifications", target,
+                              f"New specification: {new_text}", new_value=new_text,
+                              reason=reason or None)
+        else:
+            old_text = (f"{_fmt_limit(current['spec_min'])} to "
+                        f"{_fmt_limit(current['spec_max'])} {current['unit']}")
+            if (current["spec_min"], current["spec_max"], current["unit"]) == \
+                    (spec_min, spec_max, unit):
+                return current
+            if expected_version != current["version"]:
+                raise ConcurrentUpdateError(
+                    f"The {target} specification was changed by someone else "
+                    f"(now v{current['version']}). Reload and try again.")
+            if not reason:
+                raise ServiceError("Enter a reason for changing the specification.")
+            specifications.update_spec(conn, current["id"], expected_version,
+                                       spec_min, spec_max, unit, user)
+            audit.write_audit(conn, user, "SPEC_UPDATED", "Specifications", target,
+                              f"Specification v{current['version']} → v{current['version'] + 1}",
+                              old_value=old_text, new_value=new_text, reason=reason)
+        saved = specifications.find_spec(sample_type, test_name, conn)
+    db.clear_spec_cache()
+    db.clear_audit_cache()
+    return saved
 
 
 # ─────────────────────────────────────────────

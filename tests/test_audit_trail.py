@@ -31,7 +31,7 @@ def test_audit_rows_cannot_be_changed_or_deleted(lab_db, sql):
 
 
 def test_migration_4_adds_columns_and_triggers(lab_db):
-    assert schema.schema_version(core.get_conn()) == len(schema.MIGRATIONS) == 4
+    assert schema.schema_version(core.get_conn()) == len(schema.MIGRATIONS) >= 4
     columns = {r["name"] for r in rows("PRAGMA table_info(audit_trail)")}
     assert {"old_value", "new_value", "reason"} <= columns
     triggers = {r["name"] for r in rows("SELECT name FROM sqlite_master WHERE type = 'trigger'")}

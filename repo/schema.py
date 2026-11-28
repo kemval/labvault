@@ -380,11 +380,41 @@ def _m004_audit_trail(conn):
             END""")
 
 
+# Dosage forms a specification can target, frozen as of migration 5.
+_M005_SAMPLE_TYPES = ("Tablet", "Capsule", "Injectable", "Liquid", "Topical", "Powder")
+
+
+def _m005_specifications(conn):
+    """
+    Audit H4d: specification master data, one row per sample type × test
+    (ADR 0012). Results gain spec_id/spec_version recording which spec they
+    were evaluated against; existing results keep NULL ("as recorded").
+    """
+    conn.execute(f"""
+        CREATE TABLE specifications (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            sample_type TEXT NOT NULL CHECK (sample_type IN {_sql_list(_M005_SAMPLE_TYPES)}),
+            test_name   TEXT NOT NULL,
+            spec_min    REAL,
+            spec_max    REAL,
+            unit        TEXT NOT NULL,
+            version     INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+            updated_by  TEXT NOT NULL REFERENCES users(username),
+            updated_at  TEXT NOT NULL DEFAULT {_UTC_NOW},
+            UNIQUE (sample_type, test_name),
+            CHECK (spec_min IS NOT NULL OR spec_max IS NOT NULL),
+            CHECK (spec_min IS NULL OR spec_max IS NULL OR spec_min <= spec_max)
+        )""")
+    conn.execute("ALTER TABLE test_results ADD COLUMN spec_id INTEGER REFERENCES specifications(id)")
+    conn.execute("ALTER TABLE test_results ADD COLUMN spec_version INTEGER")
+
+
 MIGRATIONS = [
     _m001_simulated_flag,
     _m002_sample_version,
     _m003_constraints,
     _m004_audit_trail,
+    _m005_specifications,
 ]
 
 

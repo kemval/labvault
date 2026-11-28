@@ -11,6 +11,7 @@ from domain import ROLE_ADMIN, ROLE_LAB_TECH
 from config import ConfigError, demo_mode, admin_password
 from db import sample_exists, count_simulated, clear_user_caches
 from repo.protocols import seed_protocols
+from repo.specifications import seed_specifications
 from repo.schema import init_db
 from repo.users import DEMO_USERS, seed_users
 import services
@@ -168,6 +169,9 @@ def setup():
     init_db()        # creates all tables and indexes if they don't exist yet
     seed_users(demo=demo_mode(), admin_password=admin_password())
     seed_protocols() # loads the standard GxP protocols (Dissolution, Potency, etc.)
+    if demo_mode():
+        # Acceptance limits are a QA decision: only demo instances get defaults.
+        seed_specifications()
     clear_user_caches()
     return True
 
@@ -260,6 +264,7 @@ PAGES = [
     ("🔬  Sample Tracking", "Sample Tracking", "views.sample_tracking", False),
     ("📋  Test Results",    "Test Results",    "views.test_results",    False),
     ("📄  Protocols",       "Protocols",       "views.protocols",       False),
+    ("📏  Specifications",  "Specifications",  "views.specifications",  False),
     ("📈  Reports",         "Reports",         "views.reports",         False),
     ("🕵️  Audit Trail",     "Audit Trail",     "views.audit_trail",     False),
     ("⚙️  Admin",           "Admin",           "views.admin",           True),

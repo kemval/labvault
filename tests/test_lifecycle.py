@@ -126,7 +126,7 @@ def test_completion_requires_a_result_then_reopen_is_admin_only(sid):
     update(sid, 1, "kembly", status=WIP)
     with pytest.raises(services.PermissionDeniedError, match="at least one test result"):
         update(sid, 2, "kembly", status=DONE)
-    services.record_result({**RESULT, "sample_id": sid}, "kembly", "logged")
+    services.record_result({**RESULT, "sample_id": sid}, "kembly")
     assert update(sid, 2, "kembly", status=DONE)
     with pytest.raises(services.PermissionDeniedError, match="Only an admin can reopen"):
         update(sid, 3, "kembly", status=WIP)
@@ -136,11 +136,11 @@ def test_completion_requires_a_result_then_reopen_is_admin_only(sid):
 
 def test_results_only_on_in_progress_samples_by_assignee_or_admin(sid):
     with pytest.raises(services.PermissionDeniedError, match="In Progress"):
-        services.record_result({**RESULT, "sample_id": sid}, "kembly", "x")
+        services.record_result({**RESULT, "sample_id": sid}, "kembly")
     update(sid, 1, "kembly", status=WIP)
     with pytest.raises(services.PermissionDeniedError, match="assigned lab tech"):
-        services.record_result({**RESULT, "sample_id": sid}, "carlos", "x")
-    services.record_result({**RESULT, "sample_id": sid}, "admin", "x")
+        services.record_result({**RESULT, "sample_id": sid}, "carlos")
+    services.record_result({**RESULT, "sample_id": sid}, "admin")
     assert rows("SELECT tested_by FROM test_results") == [{"tested_by": "admin"}]
 
 

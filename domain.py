@@ -131,3 +131,72 @@ def result_entry_error(user, sample):
     if not (is_admin(user) or sample["assigned_to"] == user["username"]):
         return "Only the assigned lab tech or an admin can log results for this sample."
     return None
+
+
+# ─────────────────────────────────────────────
+# TESTS, SPECIFICATIONS AND RESULT EVALUATION (audit H4, ADR 0012)
+# ─────────────────────────────────────────────
+
+TEST_TYPES = (
+    "Potency (% Label Claim)", "Dissolution (60 min)", "pH",
+    "Sterility / Microbial Count", "Visible Particulates", "Water Content (%)",
+    "Hardness (N)", "Friability (%)", "Disintegration Time (min)",
+    "Label Review", "Other",
+)
+# Judged pass/fail by the analyst; no numeric value and no specification.
+QUALITATIVE_TESTS = ("Label Review", "Other")
+# Tests that are measured against a specification (sample type × test).
+QUANTITATIVE_TESTS = tuple(t for t in TEST_TYPES if t not in QUALITATIVE_TESTS)
+UNITS = ("%", "pH", "CFU/mL", "CFU/g", "particles/container", "N", "min", "mg", "other")
+OUTCOME_FAIL = "Fail"
+OUTCOMES = (RESULT_PASS, OUTCOME_FAIL)    # qualitative outcomes the analyst chooses
+
+
+def spec_error(spec_min, spec_max):
+    """Why these limits can't form a specification, or None."""
+    if spec_min is None and spec_max is None:
+        return "Set at least one limit (minimum, maximum or both)."
+    if spec_min is not None and spec_max is not None and spec_min > spec_max:
+        return f"Minimum ({spec_min}) can't be greater than maximum ({spec_max})."
+    return None
+
+
+def determine_status(value, spec_min, spec_max):
+    """Pass, or OOS when the value is outside the limits. None means no limit."""
+    if spec_min is not None and value < spec_min:
+        return RESULT_OOS
+    if spec_max is not None and value > spec_max:
+        return RESULT_OOS
+    return RESULT_PASS
+
+
+def evaluate_result(test_name, value, outcome, spec):
+    """
+    Validate an entry and decide its status: (status, errors).
+    A quantitative test needs a value and a specification (a dict with
+    spec_min/spec_max, or None when the lab hasn't defined one); a
+    qualitative test needs an outcome and no value. 0 is a real value.
+    """
+    if test_name not in TEST_TYPES:
+        return None, [f"Unknown test: {test_name}."]
+    if test_name in QUALITATIVE_TESTS:
+        errors = []
+        if outcome not in OUTCOMES:
+            errors.append(f"{test_name} is a pass/fail test — choose an outcome.")
+        if value is not None:
+            errors.append(f"{test_name} is a pass/fail test — leave Result Value blank.")
+        if errors:
+            return None, errors
+        return (RESULT_PASS if outcome == RESULT_PASS else RESULT_OOS), []
+
+    errors = []
+    if spec is None:
+        errors.append(f"No specification is defined for {test_name} on this sample type. "
+                      "Ask an admin to add one on the Specifications page.")
+    if value is None:
+        errors.append("Enter a Result Value — this test is measured against its specification.")
+    if outcome is not None:
+        errors.append(f"{test_name} is a numeric test — leave the outcome blank.")
+    if errors:
+        return None, errors
+    return determine_status(value, spec["spec_min"], spec["spec_max"]), []

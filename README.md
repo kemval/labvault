@@ -194,12 +194,18 @@ I approached this project as if I were building an internal tool for a real phar
 - Color-coded priority indicators (red = Critical, orange = Major, green = Minor)
 
 ### 4. 📋 Test Result Management
-- **New result entry**: Select one of your In Progress samples (any, for admins), choose test type, enter result value, define spec limits
-- **Automatic OOS detection**: Results outside `spec_min`–`spec_max` are flagged as `Fail (OOS)`
+- **New result entry**: Select one of your In Progress samples (any, for admins), choose the test, enter the value — the limits come from the specification for that sample type and test and can't be edited by the analyst
+- **Automatic OOS detection**: Results outside the specification are flagged as `Fail (OOS)`; each result records which specification version judged it
+- **No specification, no numeric result**: entry is blocked until an admin defines one
 - **Result viewer**: Filterable table with color-coded Pass/Fail styling
 - **10 pre-defined test types**: Potency, Dissolution, pH, Sterility, Particulates, Hardness, Friability, Disintegration, Water Content, Label Review
 
-### 5. 📄 Protocol Management
+### 5. 📏 Specifications
+- Acceptance limits per sample type × test (e.g. Tablet × Dissolution ≥ 80 %), visible to everyone
+- Admin-only maintenance; every change is versioned and audited with old value, new value and reason
+- Demo instances start with defaults matching the demo data; secure instances start empty, for QA to define
+
+### 6. 📄 Protocol Management
 - **5 pre-seeded GxP protocols** based on real USP/ICH standards:
   - Dissolution Testing (USP Apparatus II, USP ⟨711⟩)
   - Potency Assay (HPLC Method)
@@ -210,13 +216,13 @@ I approached this project as if I were building an internal tool for a real phar
 - Admin-only protocol creation
 - Linked to sample types for contextual relevance
 
-### 6. 📈 Report Generation
+### 7. 📈 Report Generation
 - **Excel export** (.xlsx) with 3 sheets: Samples, Test Results, OOS-Only
 - **PDF export** (.pdf) with formatted tables, headers, and OOS highlights
 - **Filterable exports**: Choose which statuses and priorities to include
 - Audit-logged: every download is recorded in the audit trail
 
-### 7. 🕵️ Audit Trail
+### 8. 🕵️ Audit Trail
 - **Append-only log**: database triggers reject UPDATE and DELETE on audit rows
 - Captured fields: Timestamp (UTC), User, Action, Module, Target ID, Old Value, New Value, Reason, Detail
 - Status and assignment changes require a reason
@@ -224,7 +230,7 @@ I approached this project as if I were building an internal tool for a real phar
 - Filterable by user and action type; paged, so every entry is reachable
 - Color-coded action types for rapid scanning
 
-### 8. ⚙️ Admin Panel
+### 9. ⚙️ Admin Panel
 - System overview with key metrics
 - Registered user list with role badges
 - Default credential reference
@@ -514,6 +520,7 @@ labvault/
 │   ├── sample_tracking.py  # Sample list with filters, status updates, reassignment
 │   ├── test_results.py     # Test result entry & OOS-flagged result viewer
 │   ├── protocols.py        # GxP protocol viewer & creator
+│   ├── specifications.py   # Acceptance limits per sample type × test (admin-maintained)
 │   ├── reports.py          # PDF/Excel report generation with filters
 │   ├── audit_trail.py      # Append-only audit log, filtered and paged
 │   └── admin.py            # System overview & user management
