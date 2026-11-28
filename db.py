@@ -12,7 +12,7 @@ the caches it affects.
 
 import streamlit as st
 
-from repo import audit, protocols, results, samples, users
+from repo import audit, protocols, results, samples, specifications, users
 
 
 # ─────────────────────────────────────────────
@@ -122,6 +122,16 @@ def get_all_protocols():
 
 
 # ─────────────────────────────────────────────
+# SPECIFICATIONS
+# ─────────────────────────────────────────────
+
+@st.cache_data(ttl=300)
+def get_all_specifications():
+    """Long TTL — specs change rarely; save_specification clears it."""
+    return specifications.all_specs()
+
+
+# ─────────────────────────────────────────────
 # INVALIDATION — called by services.py after a successful commit
 # ─────────────────────────────────────────────
 
@@ -148,3 +158,7 @@ def clear_user_caches():
 
 def clear_protocol_cache():
     get_all_protocols.clear()
+
+
+def clear_spec_cache():
+    get_all_specifications.clear()

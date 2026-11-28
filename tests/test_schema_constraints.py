@@ -6,8 +6,10 @@ import pytest
 import services
 from fake_fda import record, serve
 from repo import core, schema, users
+from conftest import insert_legacy_result
 from repo.results import insert_test_result
 from repo.samples import insert_sample
+import test_services
 from test_services import BASE, rows
 
 SAMPLE = {**BASE, "sample_id": "S-1", "status": "Pending", "source": "Manual"}
@@ -136,7 +138,7 @@ def test_new_rows_get_utc_timestamps_and_updates_bump_updated_at(lab_db):
     [s] = rows("SELECT created_at, updated_at FROM samples")
     assert s["created_at"].endswith("Z") and len(s["created_at"]) == 20
     assert s["updated_at"] > "2000-01-01T00:00:00Z"
-    services.record_result({**RESULT, "sample_id": sample_id}, "kembly", "logged")
+    services.record_result({**test_services.RESULT, "sample_id": sample_id}, "kembly")
     [r] = rows("SELECT created_at FROM test_results")
     assert r["created_at"].endswith("Z")
 
@@ -152,7 +154,7 @@ def v2_db(tmp_path, monkeypatch):
         schema.init_db()
         users.seed_users(demo=True)
         insert_sample(SAMPLE)
-        insert_test_result(RESULT)
+        insert_legacy_result(RESULT)
         execute("INSERT INTO audit_trail (timestamp, user, action, module) "
                 "VALUES ('2024-01-01 00:00:00', 'system', 'SAMPLE_IMPORTED', 'FDA Seed')")
     assert schema.schema_version(core.get_conn()) == 2
@@ -178,7 +180,10 @@ def test_migration_keeps_every_row_and_leaves_old_timestamps_empty(v2_db):
     # two system accounts (the 'system' audit row now references one).
     assert [r[:-2] for r in after["samples"]] == before["samples"]
     assert {r[-2:] for r in after["samples"]} == {(None, None)}
-    assert [r[:-1] for r in after["test_results"]] == before["test_results"]
+    width = len(before["test_results"][0])
+    assert [r[:width] for r in after["test_results"]] == before["test_results"]
+    # + created_at (migration 3), spec_id and spec_version (migration 5): all empty
+    assert {r[width:] for r in after["test_results"]} == {(None, None, None)}
     assert [r[:7] for r in after["audit_trail"]] == before["audit_trail"]   # + 3 new columns
     assert after["users"][:len(before["users"])] == before["users"]
     assert {r[1] for r in after["users"][len(before["users"]):]} == {"system", "simulator"}

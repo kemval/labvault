@@ -16,11 +16,13 @@ def insert_test_result(data: dict, conn=None) -> int:
         return c.execute("""
             INSERT INTO test_results
                 (sample_id, test_name, result_value, result_unit,
-                 spec_min, spec_max, status, tested_by, tested_at, notes)
+                 spec_min, spec_max, status, tested_by, tested_at, notes,
+                 spec_id, spec_version)
             VALUES
                 (:sample_id, :test_name, :result_value, :result_unit,
-                 :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes)
-        """, data).lastrowid
+                 :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes,
+                 :spec_id, :spec_version)
+        """, {"spec_id": None, "spec_version": None, **data}).lastrowid
 
     return run_in(conn, run)
 

@@ -8,9 +8,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 import db  # noqa: E402
-from repo import audit, core, fda_import, protocols, results, samples, schema, users  # noqa: E402
+from repo import (audit, core, fda_import, protocols, results, samples, schema,  # noqa: E402
+                  specifications, users)
 
-_REPO_MODULES = (core, schema, users, audit, samples, results, protocols, fda_import)
+_REPO_MODULES = (core, schema, users, audit, samples, results, protocols, fda_import,
+                 specifications)
 
 
 class TestDB:
@@ -62,7 +64,18 @@ def lab_db(fresh_db):
     """fresh_db with the demo accounts, for tests that write as kembly etc.
     (samples, results and audit rows must reference real users)."""
     fresh_db.seed_users(demo=True)
+    specifications.seed_specifications()       # demo limits, so results can be logged
     return fresh_db
+
+
+def insert_legacy_result(data: dict):
+    """A result row in the baseline columns — for tests that build an
+    older schema (before migration 5) and then migrate it."""
+    cols = ("sample_id", "test_name", "result_value", "result_unit", "spec_min",
+            "spec_max", "status", "tested_by", "tested_at", "notes")
+    with core.transaction() as conn:
+        conn.execute(f"INSERT INTO test_results ({', '.join(cols)}) "
+                     f"VALUES ({', '.join('?' * len(cols))})", [data[c] for c in cols])
 
 
 @pytest.fixture

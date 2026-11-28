@@ -122,8 +122,9 @@ def test_update_of_missing_sample(lab_db):
 
 # ── record_result / create_protocol ────────────────────────────────────────
 
-RESULT = {"test_name": "pH", "result_value": 6.0, "result_unit": "pH", "spec_min": 4.5,
-          "spec_max": 7.5, "status": "Pass", "tested_at": "2026-01-02", "notes": ""}
+# What a caller sends: no limits or status — the service applies the spec.
+RESULT = {"test_name": "Potency (% Label Claim)", "result_value": 95.0,
+          "tested_at": "2026-01-02", "notes": ""}
 
 
 def start(sample_id):
@@ -133,10 +134,11 @@ def start(sample_id):
 
 def test_record_result_writes_result_and_audit(sample_id):
     start(sample_id)
-    services.record_result({**RESULT, "sample_id": sample_id}, "kembly", "pH: 6.0 → Pass")
+    services.record_result({**RESULT, "sample_id": sample_id}, "kembly")
     [r] = rows("SELECT * FROM test_results")
     assert (r["tested_by"], r["status"]) == ("kembly", "Pass")
-    assert audit("RESULT_LOGGED")[0]["detail"] == "pH: 6.0 → Pass"
+    assert audit("RESULT_LOGGED")[0]["detail"] == \
+        "Potency (% Label Claim): 95.0 % (spec v1: 90 to 110 %) → Pass"
 
 
 def test_record_result_rolls_back_when_audit_fails(sample_id, monkeypatch):
@@ -146,13 +148,13 @@ def test_record_result_rolls_back_when_audit_fails(sample_id, monkeypatch):
         raise RuntimeError("audit write failed")
     monkeypatch.setattr(audit_repo, "write_audit", boom)
     with pytest.raises(RuntimeError):
-        services.record_result({**RESULT, "sample_id": sample_id}, "kembly", "x")
+        services.record_result({**RESULT, "sample_id": sample_id}, "kembly")
     assert rows("SELECT * FROM test_results") == []
 
 
 def test_record_result_for_missing_sample(lab_db):
     with pytest.raises(services.NotFoundError):
-        services.record_result({**RESULT, "sample_id": "NOPE"}, "kembly", "x")
+        services.record_result({**RESULT, "sample_id": "NOPE"}, "kembly")
 
 
 def test_create_protocol_writes_protocol_and_audit(lab_db):

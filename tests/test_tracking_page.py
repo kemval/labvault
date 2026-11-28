@@ -3,6 +3,7 @@ import pytest
 
 import db
 import services
+from repo.specifications import seed_specifications
 from test_app_login import login, run_app
 from test_services import BASE, RESULT, audit, rows
 
@@ -65,7 +66,8 @@ def test_reload_adopts_current_values_then_saves(tracking):
 def test_consecutive_saves_by_same_user_both_succeed(tracking):
     at, sample_id = tracking
     save(at, sample_id, "In Progress")
-    services.record_result({**RESULT, "sample_id": sample_id}, "kembly", "logged")  # needed to complete
+    seed_specifications()
+    services.record_result({**RESULT, "sample_id": sample_id}, "kembly")  # needed to complete
     at.run()
     save(at, sample_id, "Completed")
     assert rows("SELECT status, version FROM samples") == [{"status": "Completed", "version": 3}]

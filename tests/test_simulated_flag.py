@@ -42,7 +42,7 @@ def rows(db, sql):
 
 def test_migration_flags_existing_demo_data_only(tmp_path, monkeypatch):
     from repo import core, schema, users
-    from repo.results import insert_test_result
+    from conftest import insert_legacy_result as insert_test_result
     from repo.samples import insert_sample
     monkeypatch.setattr(core, "DB_PATH", str(tmp_path / "old.db"))
     with monkeypatch.context() as m:
