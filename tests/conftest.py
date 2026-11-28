@@ -95,6 +95,8 @@ def never_the_real_database(tmp_path, monkeypatch):
     Every test starts pointed at a throwaway path instead; fresh_db and
     friends then override it with their own."""
     monkeypatch.setattr(core, "DB_PATH", str(tmp_path / "no-database-configured.db"))
+    # Nor the developer's real alert channel (ADR 0025).
+    monkeypatch.delenv("LABVAULT_ALERT_URL", raising=False)
 
 
 @pytest.fixture(autouse=True)

@@ -25,6 +25,8 @@ import sys
 import uuid
 from datetime import datetime, timezone
 
+from alerts import AlertHandler, alert_url
+
 LOGGER = "labvault"
 log = logging.getLogger(LOGGER)
 
@@ -64,7 +66,7 @@ def configure() -> None:
     """
     Send log records to stderr as JSON, once per process (safe to call on
     every rerun). LabVault's own loggers log from INFO; other libraries only
-    from WARNING.
+    from WARNING. With LABVAULT_ALERT_URL set, errors are also pushed to ntfy.
     """
     root = logging.getLogger()
     if any(isinstance(h, _StderrHandler) for h in root.handlers):
@@ -75,6 +77,9 @@ def configure() -> None:
     if root.level == logging.NOTSET or root.level > logging.WARNING:
         root.setLevel(logging.WARNING)
     log.setLevel(logging.INFO)
+    # Errors also go to the owner's phone when LABVAULT_ALERT_URL is set (ADR 0025).
+    if (url := alert_url()) and not any(isinstance(h, AlertHandler) for h in log.handlers):
+        log.addHandler(AlertHandler(url))
 
 
 def log_exception(message: str, **context) -> str:
