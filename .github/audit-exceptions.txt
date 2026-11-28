@@ -1,0 +1,8 @@
+# Known vulnerabilities the dependency audit may ignore (ADR 0022).
+# Only for an advisory with no usable fix. One per line:
+#
+#   <advisory ID>  <review-by YYYY-MM-DD, at most 30 days ahead>  <reason>
+#
+# After the review-by date the audit fails again: remove the line (upgrade)
+# or, if there is still no fix, set a new date with the reason.
+# None at present.

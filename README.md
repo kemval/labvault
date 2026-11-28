@@ -533,8 +533,9 @@ grep 3f9c1a2b labvault.log      # message, user, context and traceback
 app's own handler (ADR 0021). In tests, any error LabVault logs fails the test unless it is
 marked `@pytest.mark.logs_errors`.
 
-CI (`.github/workflows/ci.yml`) runs ruff, the test suite on Python 3.11 and 3.12, a lock-file
-freshness check, and `pip-audit` on every pull request, all from the hashed lock files.
+CI (`.github/workflows/ci.yml`) runs ruff, the test suite on Python 3.11 and 3.12 and a
+lock-file freshness check on every pull request, all from the hashed lock files. The dependency
+audit (`.github/workflows/dependency-audit.yml`) runs on every pull request and weekly.
 
 ### Dependencies
 
@@ -551,6 +552,13 @@ uv pip compile --universal --generate-hashes --python-version 3.11 requirements-
 ```
 
 Dependabot proposes weekly updates as pull requests, which CI tests before anything is merged.
+Dependabot alerts and security updates are on as well.
+
+**Vulnerabilities (ADR 0022):** `pip-audit` checks both locks on every pull request and every
+Monday, and any known vulnerability fails it. An advisory with no fix can be excepted for at
+most 30 days in `.github/audit-exceptions.txt`, with a reason; after that date the audit fails
+again. Run it locally with `python scripts/audit_deps.py`. The full policy, with response
+times, is in [docs/operations/dependency-policy.md](docs/operations/dependency-policy.md).
 
 ---
 
@@ -568,7 +576,7 @@ labvault/
 ├── repo/                   # Streamlit-free persistence: SQLite connection, schema +
 │   │                       #   migrations, users, samples, results, protocols, audit, FDA batch
 │   └── ...
-├── scripts/                # backup_db.py (backup/restore), benchmark.py, dedupe_simulated_results.py
+├── scripts/                # backup_db.py, benchmark.py, audit_deps.py, dedupe_simulated_results.py
 ├── docs/                   # adr/ (architecture decisions), operations/ (runbooks)
 ├── tests/                  # pytest + Streamlit AppTest suite
 ├── requirements.in         # Allowed version ranges (edit these)
