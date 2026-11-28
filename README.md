@@ -185,10 +185,12 @@ I approached this project as if I were building an internal tool for a real phar
 - Lab technician assignment from registered users
 
 ### 3. 🔬 Sample Tracking
-- Filterable sample list by status, priority, and free-text search
-- Expandable sample detail cards with full metadata
-- Controlled status changes: Pending → In Progress → Completed (needs ≥ 1 result), or → Rejected;
-  only allowed next steps are offered, and every change needs a reason
+- Paged sample table (25 per page) filtered, searched and sorted in the database, so the page
+  stays fast at thousands of samples; "Assigned to me" and "Unassigned" views
+- Open one sample at a time for its full metadata, assigned protocol and result review counts
+- Controlled status changes: Pending → In Progress → Completed (every result reviewed, ≥ 1 approved),
+  or → Rejected; only allowed next steps are offered, every change needs a reason, and
+  Rejected/Completed need an explicit confirmation
 - Only the assigned lab tech or an admin can change a sample; techs can claim unassigned samples;
   reassignment and reopening a Completed/Rejected sample are admin-only
 - Color-coded priority indicators (red = Critical, orange = Major, green = Minor)
@@ -525,7 +527,7 @@ labvault/
 │   ├── ui.py               # Shared rendering helpers (HTML escaping, SIMULATED labels)
 │   ├── dashboard.py        # KPI dashboard with charts, OOS alerts, activity feed
 │   ├── sample_intake.py    # Manual sample registration form
-│   ├── sample_tracking.py  # Sample list with filters, status updates, reassignment
+│   ├── sample_tracking.py  # Paged sample table, detail panel, status updates, reassignment
 │   ├── test_results.py     # Test result entry & OOS-flagged result viewer
 │   ├── protocols.py        # GxP protocol viewer & creator
 │   ├── specifications.py   # Acceptance limits per sample type × test (admin-maintained)
@@ -549,7 +551,7 @@ The login screen provides secure access with role-based authentication. Demo cre
 The dashboard presents a real-time overview of laboratory operations: total samples, pending/in-progress/completed counts, OOS alerts, recent samples with priority badges, and the latest audit trail entries.
 
 ### Sample Tracking
-The tracking module allows filtering by status, priority, and free-text search. Each sample expands to show full metadata and provides inline status/assignee updates.
+The tracking module shows a paged table filtered by status, priority, assignee and free-text search, with a choice of sort order. Opening a sample shows its full metadata and protocol next to the status/assignee update form.
 
 ### Test Results
 The results module features dual tabs: one for logging new test results with automatic OOS detection, and another for viewing all results with color-coded Pass/Fail indicators.
