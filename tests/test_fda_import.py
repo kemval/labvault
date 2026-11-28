@@ -116,7 +116,7 @@ def test_import_refreshes_cached_reads(fresh_db, monkeypatch):
     serve(monkeypatch, [record(1)])
     services.import_fda(limit=1)
     assert fresh_db.sample_exists() is True
-    assert fresh_db.count_oos_results() == 1
+    assert fresh_db.get_oos_breakdown()["counted"] == 1
 
 
 def test_api_failure_reports_error_and_writes_nothing(fresh_db, monkeypatch):

@@ -318,6 +318,52 @@ CONCLUSION_MEANING = {CONCLUSION_LAB_ERROR: REVIEW_REJECTED,
                       CONCLUSION_CONFIRMED: REVIEW_APPROVED}
 
 
+# ─────────────────────────────────────────────
+# OOS CATEGORIES FOR COUNTS AND REPORTS (audit 3.8, ADR 0019)
+# ─────────────────────────────────────────────
+
+OOS_CONFIRMED = "Confirmed"
+OOS_UNDER_INVESTIGATION = "Under investigation"
+OOS_INVALIDATED = "Invalidated (lab error)"
+OOS_NOT_INVESTIGATED = "Not investigated"      # recorded before investigations existed
+OOS_CATEGORIES = (OOS_CONFIRMED, OOS_UNDER_INVESTIGATION, OOS_NOT_INVESTIGATED, OOS_INVALIDATED)
+# Headline OOS totals leave out results shown to be invalid; they are reported separately.
+OOS_COUNTED = (OOS_CONFIRMED, OOS_UNDER_INVESTIGATION, OOS_NOT_INVESTIGATED)
+
+
+def oos_category(result):
+    """
+    Where an OOS result stands, or None for a passing result. Invalidated:
+    an investigation found a laboratory error, or a reviewer rejected it.
+    `result` needs status, review, investigation_status and conclusion.
+    repo.results.OOS_CATEGORY_SQL is the same rule in SQL (tests keep them equal).
+    """
+    if result["status"] != RESULT_OOS:
+        return None
+    if result.get("conclusion") == CONCLUSION_LAB_ERROR or result.get("review") == REVIEW_REJECTED:
+        return OOS_INVALIDATED
+    if result.get("conclusion") == CONCLUSION_CONFIRMED:
+        return OOS_CONFIRMED
+    if result.get("investigation_status") == INVESTIGATION_OPEN:
+        return OOS_UNDER_INVESTIGATION
+    return OOS_NOT_INVESTIGATED
+
+
+def spec_text(spec_min, spec_max, unit=""):
+    """Acceptance limits for display: '80 – 110 %', 'min 80 %', 'max 0 CFU/mL' or '—'.
+    Words, not ≥/≤: the PDF's standard fonts have no glyph for those."""
+    def num(v):
+        return f"{v:g}"
+    suffix = f" {unit}" if unit else ""
+    if spec_min is not None and spec_max is not None:
+        return f"{num(spec_min)} – {num(spec_max)}{suffix}"
+    if spec_min is not None:
+        return f"min {num(spec_min)}{suffix}"
+    if spec_max is not None:
+        return f"max {num(spec_max)}{suffix}"
+    return "—"
+
+
 def allowed_meanings(result):
     """
     The signature meanings `result` may receive. An OOS result can't be

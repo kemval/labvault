@@ -75,4 +75,4 @@ def test_excel_export_never_contains_formulas():
     values = {c.value for c in cells}
     assert {formula, "=1+1", "@SUM(A1)", "-2+3"} <= values   # text preserved exactly
     assert -1.5 in values                                     # numbers stay numeric
-    assert wb.sheetnames == ["Samples", "Test Results", "OOS Results"]
+    assert wb.sheetnames == ["Report Info", "Samples", "Test Results", "OOS Results"]

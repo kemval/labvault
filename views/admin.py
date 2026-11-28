@@ -7,12 +7,12 @@ import pandas as pd
 import streamlit as st
 
 import services
-from domain import (LOGIN_ROLES, MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_LAB_TECH, ROLE_SYSTEM,
+from domain import (LOGIN_ROLES, OOS_INVALIDATED, MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_LAB_TECH, ROLE_SYSTEM,
                     SOURCE_FDA, STATUS_COMPLETED)
 from repo.core import utc_now
 from views.ui import page_header
 from config import demo_mode
-from db import get_all_users, get_all_samples, count_samples_by_status, count_oos_results
+from db import get_all_users, get_all_samples, count_samples_by_status, get_oos_breakdown
 from repo.users import DEMO_USERS
 
 
@@ -32,12 +32,13 @@ def show():
     st.markdown("#### System Overview")
     samples    = get_all_samples()
     status_map = count_samples_by_status()
-    oos        = count_oos_results()
+    oos        = get_oos_breakdown()
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Samples",    len(samples))
     c2.metric("Completed",        status_map.get(STATUS_COMPLETED, 0))
-    c3.metric("OOS Results",      oos)
+    c3.metric("OOS Results",      oos["counted"],
+              help=f"Excludes {oos[OOS_INVALIDATED]} invalidated by a laboratory error.")
     # Quick count of how many samples came from the FDA import vs. manual entry
     c4.metric("FDA-Imported",     len([s for s in samples if s.get("source") == SOURCE_FDA]))
 

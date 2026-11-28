@@ -4,14 +4,14 @@ Overview of all KPIs, sample status, OOS alerts, and recent audit activity.
 """
 
 import streamlit as st
-from domain import PRIORITY_CRITICAL, PRIORITY_MAJOR, PRIORITY_MINOR, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_PENDING, STATUS_REJECTED
+from domain import OOS_UNDER_INVESTIGATION, PRIORITY_CRITICAL, PRIORITY_MAJOR, PRIORITY_MINOR, STATUS_COMPLETED, STATUS_IN_PROGRESS, STATUS_PENDING, STATUS_REJECTED
 from repo.audit import SESSION_ACTIONS
 import pandas as pd
 from db import (
     get_recent_samples, get_oos_results, get_audit_trail,
-    count_samples_by_status, count_samples_by_priority, count_oos_results
+    count_samples_by_status, count_samples_by_priority, get_oos_breakdown
 )
-from views.ui import esc, simulated_text, SIMULATED_LABEL, page_header
+from views.ui import esc, oos_summary, simulated_text, SIMULATED_LABEL, page_header
 
 
 def show():
@@ -28,7 +28,8 @@ def show():
     oos_results  = get_oos_results(10)          # OOS rows straight from SQL, not filtered in Python
     status_map   = count_samples_by_status()    # {"Pending": 12, "Completed": 45, ...}
     priority_map = count_samples_by_priority()  # {"Critical": 5, "Major": 30, ...}
-    oos_count    = count_oos_results()          # single integer — COUNT(*) query
+    oos          = get_oos_breakdown()          # one GROUP BY over the OOS categories
+    oos_count    = oos["counted"]               # invalidated results are not counted (ADR 0019)
     # 8 most recent data changes — sign-in events would crowd them out
     audit        = get_audit_trail(limit=8, exclude_actions=SESSION_ACTIONS)
 
@@ -55,9 +56,11 @@ def show():
     c4.metric("Completed",      completed)
     # The OOS metric uses delta_color="inverse" so Streamlit shows it in red
     # when there are failures — "inverse" flips the normal green/red convention.
+    open_oos = oos[OOS_UNDER_INVESTIGATION]
     c5.metric("⚠️ OOS Results", oos_count,
-              delta="Requires review" if oos_count > 0 else "None",
-              delta_color="inverse" if oos_count > 0 else "off")
+              delta=f"{open_oos} under investigation" if open_oos else "None open",
+              delta_color="inverse" if open_oos else "off",
+              help=oos_summary(oos))
 
     st.markdown("---")
 
@@ -87,7 +90,7 @@ def show():
     # no point showing an empty "OOS Alerts" header to worry the user.
     if oos_results:
         st.markdown("#### 🚨 Out-of-Spec (OOS) Alerts")
-        st.error(f"{oos_count} result(s) flagged as Out-of-Spec — review required.")
+        st.error(f"{oos_count} Out-of-Spec result(s). {oos_summary(oos)}")
         oos_df = pd.DataFrame(oos_results)
         oos_df["is_simulated"] = oos_df["is_simulated"].map(simulated_text)
         # Rename by name, not position, so adding a column can't shift labels
@@ -95,7 +98,8 @@ def show():
             "sample_id": "Sample ID", "test_name": "Test", "result_value": "Result",
             "result_unit": "Unit", "spec_min": "Spec Min", "spec_max": "Spec Max",
             "tested_by": "Tested By", "tested_at": "Date", "is_simulated": "Simulated",
-        })
+            "oos_category": "OOS Status",
+        }).drop(columns=["id"])
         st.dataframe(oos_df, use_container_width=True, hide_index=True)
         st.markdown("---")
 
