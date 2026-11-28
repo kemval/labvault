@@ -83,3 +83,7 @@ def show():
             f"Closed investigation #{chosen['id']}: {saved['conclusion']} "
             f"({saved['closed_at']} UTC).")
         st.rerun()
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()

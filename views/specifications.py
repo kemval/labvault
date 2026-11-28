@@ -79,3 +79,7 @@ def show():
             st.session_state.spec_saved = (
                 f"Saved {sample_type} × {test_name} as v{saved['version']}.")
             st.rerun()
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()

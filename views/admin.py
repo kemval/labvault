@@ -150,3 +150,7 @@ def _create_account(user):
             _run(services.create_user, username.strip(), role, temp, user["username"],
                  done=f"Created {username.strip()}. They must change the temporary "
                       "password at first sign-in.")
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()

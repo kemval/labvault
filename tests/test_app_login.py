@@ -24,6 +24,20 @@ def run_app():
     return at
 
 
+def go(at, title):
+    """Open a page by its navigation title, as a click in the sidebar would."""
+    from views.navigation import PAGES
+    path = next(path for t, path, *_ in PAGES if t == title)
+    at.switch_page(path).run()
+    assert not at.exception, at.exception
+    return at
+
+
+def registered_pages(at):
+    """Titles of the pages st.navigation registered for this session."""
+    return [info["page_name"] for info in at._registered_pages.values()]
+
+
 def page_text(at):
     return " ".join(str(e.value) for e in list(at.markdown) + list(at.caption) + list(at.code))
 
@@ -65,7 +79,7 @@ def test_secure_mode_admin_logs_in_and_admin_page_hides_demo_block(fresh_db, set
     at = login(run_app(), "admin", "a-long-secret-pw")
     assert at.session_state.logged_in is True
 
-    at.sidebar.radio[0].set_value("⚙️  Admin").run()
+    go(at, "Admin")
     assert not at.exception, at.exception
     assert any("Admin Panel" in m.value for m in at.markdown)
     assert "admin123" not in page_text(at)

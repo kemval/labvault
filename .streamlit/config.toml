@@ -1,0 +1,14 @@
+# Committed theme (ADR 0018). secrets.toml in this folder stays untracked.
+[theme]
+# The custom HTML cards and badges use light-theme colours; pinning the base
+# keeps them readable when the visitor's OS prefers dark mode (audit U6).
+base = "light"
+primaryColor = "#1a4a8a"
+
+[theme.sidebar]
+# Navy sidebar. Set here rather than by CSS so Streamlit derives readable
+# colours for widgets, alerts and focus rings inside it (audit U5).
+backgroundColor = "#0f2942"
+secondaryBackgroundColor = "#1a3a5c"
+textColor = "#e8f0fe"
+primaryColor = "#90caf9"

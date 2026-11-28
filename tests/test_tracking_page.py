@@ -5,7 +5,7 @@ import db
 import services
 from domain import TERMINAL_STATUSES
 from repo.specifications import seed_specifications
-from test_app_login import login, run_app
+from test_app_login import go, login, run_app
 from test_services import BASE, RESULT, audit, rows
 
 
@@ -15,7 +15,7 @@ def tracking(fresh_db, settings):
     fresh_db.seed_users(demo=True)
     sample_id = services.register_sample(BASE, "admin")
     at = login(run_app(), "kembly", "lab2024")
-    at.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
+    go(at, "Sample Tracking")
     assert not at.exception, at.exception
     return open_sample_panel(at, sample_id), sample_id
 
@@ -89,7 +89,7 @@ def test_intake_form_registers_sample_with_audit(fresh_db, settings):
     fresh_db.seed_users(demo=True)
     fresh_db.insert_sample({**BASE, "sample_id": "S-0", "status": "Pending", "source": "Manual"})
     at = login(run_app(), "kembly", "lab2024")
-    at.sidebar.radio[0].set_value("🧫  Sample Intake").run()
+    go(at, "Sample Intake")
     [product, manufacturer] = [w for w in at.text_input if w.label.endswith("*")]
     product.input("Amoxicillin 250mg")
     manufacturer.input("Acme")
@@ -107,7 +107,7 @@ def test_status_save_keeps_unassigned_sample_unassigned(fresh_db, settings):
     fresh_db.seed_users(demo=True)
     sample_id = services.register_sample({**BASE, "assigned_to": None}, "admin")
     at = login(run_app(), "kembly", "lab2024")
-    at.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
+    go(at, "Sample Tracking")
     open_sample_panel(at, sample_id)
     assert at.selectbox(key=f"assign_{sample_id}").value == "Unassigned"
 
@@ -195,7 +195,7 @@ def test_sample_detail_includes_protocol_and_review_counts(lab_db):
 
 def tracking_page(user="kembly"):
     at = login(run_app(), user, "admin123" if user == "admin" else "lab2024")
-    at.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
+    go(at, "Sample Tracking")
     assert not at.exception, at.exception
     return at
 

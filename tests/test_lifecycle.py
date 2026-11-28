@@ -5,7 +5,7 @@ import domain
 import services
 from domain import (STATUS_COMPLETED as DONE, STATUS_IN_PROGRESS as WIP,
                     STATUS_PENDING as PENDING, STATUS_REJECTED as REJECTED)
-from test_app_login import login, run_app
+from test_app_login import go, login, run_app
 from test_services import BASE, RESULT, audit, rows
 
 ADMIN = {"username": "admin", "role": "admin"}
@@ -157,30 +157,30 @@ def test_results_only_on_in_progress_samples_by_assignee_or_admin(sid):
 def open_page(lab_db, settings, username, page):
     settings(demo="true")
     at = login(run_app(), username, "lab2024" if username != "admin" else "admin123")
-    at.sidebar.radio[0].set_value(page).run()
+    go(at, page)
     assert not at.exception, at.exception
     return at
 
 
 def test_tracking_offers_only_allowed_statuses(sid, lab_db, settings):
-    at = open_page(lab_db, settings, "kembly", "🔬  Sample Tracking")
+    at = open_page(lab_db, settings, "kembly", "Sample Tracking")
     at.selectbox(key="trk_open").set_value(sid).run()
     assert at.selectbox(key=f"status_{sid}").options == [PENDING, WIP, REJECTED]
     assert at.selectbox(key=f"assign_{sid}").options == ["kembly"]
 
 
 def test_tracking_is_read_only_for_other_techs(sid, lab_db, settings):
-    at = open_page(lab_db, settings, "carlos", "🔬  Sample Tracking")
+    at = open_page(lab_db, settings, "carlos", "Sample Tracking")
     at.selectbox(key="trk_open").set_value(sid).run()
     assert f"status_{sid}" not in [w.key for w in at.selectbox]
     assert any("only the assignee or an admin" in c.value for c in at.caption)
 
 
 def test_result_form_lists_only_samples_open_to_the_user(sid, lab_db, settings):
-    at = open_page(lab_db, settings, "kembly", "📋  Test Results")
+    at = open_page(lab_db, settings, "kembly", "Test Results")
     assert any("No samples are open for results" in i.value for i in at.info)
     update(sid, 1, "kembly", status=WIP)
-    at = open_page(lab_db, settings, "kembly", "📋  Test Results")
+    at = open_page(lab_db, settings, "kembly", "Test Results")
     assert [o for o in at.selectbox[0].options if sid in o]
-    at = open_page(lab_db, settings, "carlos", "📋  Test Results")
+    at = open_page(lab_db, settings, "carlos", "Test Results")
     assert any("No samples are open for results" in i.value for i in at.info)

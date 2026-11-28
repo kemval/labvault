@@ -69,3 +69,7 @@ def show():
 
     styled = df.style.map(lambda v: ACTION_COLORS.get(v, ""), subset=["Action"])
     st.dataframe(styled, use_container_width=True, hide_index=True, height=600)
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()

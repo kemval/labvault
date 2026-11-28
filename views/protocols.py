@@ -76,3 +76,7 @@ def show():
                 "steps":       steps,        # raw newline-separated text, stored as-is
             }, user["username"])
             st.success(f"✅ Protocol '{name}' created.")
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()

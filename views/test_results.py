@@ -231,3 +231,7 @@ def show():
 
         styled = df.style.map(color_status, subset=["Status"])
         st.dataframe(styled, use_container_width=True, hide_index=True)
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()

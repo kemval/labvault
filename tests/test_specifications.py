@@ -4,7 +4,7 @@ import pytest
 import seed
 import services
 from repo import specifications
-from test_app_login import login, run_app
+from test_app_login import go, login, run_app
 from test_services import audit
 
 POTENCY = "Potency (% Label Claim)"
@@ -97,7 +97,7 @@ def test_secure_instance_starts_without_specs(fresh_db, settings):
 
 def open_specs(username, password):
     at = login(run_app(), username, password)
-    at.sidebar.radio[0].set_value("📏  Specifications").run()
+    go(at, "Specifications")
     assert not at.exception, at.exception
     return at
 

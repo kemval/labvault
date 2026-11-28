@@ -3,7 +3,7 @@ import pytest
 
 import services
 from domain import evaluate_result
-from test_app_login import login, run_app, no_network  # noqa: F401
+from test_app_login import go, login, run_app, no_network  # noqa: F401
 from test_services import audit, rows
 
 FAIL = "Fail (OOS)"
@@ -105,7 +105,7 @@ def test_spec_change_applies_to_new_results_only(open_sample):
 def results_page(open_sample, settings):
     settings(demo="true")
     at = login(run_app(), "kembly", "lab2024")
-    at.sidebar.radio[0].set_value("📋  Test Results").run()
+    go(at, "Test Results")
     assert not at.exception, at.exception
     return at
 

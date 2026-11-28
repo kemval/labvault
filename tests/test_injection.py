@@ -5,7 +5,7 @@ import openpyxl
 
 import services
 
-from test_app_login import login, run_app, no_network  # noqa: F401
+from test_app_login import go, login, run_app, no_network  # noqa: F401
 
 PAYLOAD = '<img src=x onerror="alert(1)">'
 
@@ -47,7 +47,7 @@ def test_sample_tracking_escapes_stored_values(fresh_db, settings):
     add_hostile_sample(fresh_db)
 
     at = login(run_app(), "admin", "admin123")
-    at.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
+    go(at, "Sample Tracking")
     at.selectbox(key="trk_open").set_value("S-X").run()     # the detail panel is HTML
     assert not at.exception, at.exception
     assert_escaped(at)

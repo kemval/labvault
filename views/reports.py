@@ -256,3 +256,7 @@ def show():
                     )
                 except Exception as e:
                     st.error(f"PDF export failed: {e}. Make sure reportlab is installed.")
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()

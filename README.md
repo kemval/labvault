@@ -252,6 +252,13 @@ I approached this project as if I were building an internal tool for a real phar
 - Default credential reference (demo mode)
 - FDA import statistics
 
+### 11. ♿ Accessibility (WCAG 2.2 AA)
+- Every page has its own URL; navigation titles are plain text with icons that screen readers skip
+- Press Enter to sign in
+- All custom text colours are at least 4.5:1 contrast, checked by `tests/test_accessibility.py`
+- Theme and navy sidebar come from `.streamlit/config.toml`, so Streamlit's alerts and focus
+  rings keep their own readable colours
+
 ---
 
 ## 🛠️ Technology Stack

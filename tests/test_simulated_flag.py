@@ -7,7 +7,7 @@ import pytest
 import domain
 import services
 from fake_fda import record, serve
-from test_app_login import login, run_app  # samples always exist here, so no auto-import
+from test_app_login import go, login, run_app  # samples always exist here, so no auto-import
 
 
 def sample(sample_id, source, **extra):
@@ -126,7 +126,7 @@ def test_dashboard_badges_only_simulated_samples(mixed_app):
 
 
 def test_tracking_labels_simulated_samples(mixed_app):
-    mixed_app.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
+    go(mixed_app, "Sample Tracking")
     assert not mixed_app.exception, mixed_app.exception
     table = mixed_app.dataframe[0].value.set_index("Sample ID")["Simulated"]
     assert (table["D-0001-2024"], table["M-1"]) == ("Yes", "No")

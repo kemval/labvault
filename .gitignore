@@ -30,7 +30,9 @@ labvault.db.replaced-*
 labvault.db-*
 
 # ─── Streamlit ────────────────────────────────
-.streamlit/
+# Only the theme is committed; secrets.toml must never be.
+.streamlit/*
+!.streamlit/config.toml
 
 # ─── OS ───────────────────────────────────────
 Thumbs.db

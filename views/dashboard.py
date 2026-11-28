@@ -136,7 +136,7 @@ def show():
                         <div style="font-size:12px;color:#555;margin-top:3px">
                             {esc(name[:60])}{'...' if len(name) > 60 else ''}
                         </div>
-                        <div style="font-size:11px;color:#888;margin-top:2px">
+                        <div style="font-size:12px;color:#595959;margin-top:2px">
                             {esc(s.get('manufacturer','—'))} · {esc(s.get('assigned_to') or 'Unassigned')}
                         </div>
                     </div>
@@ -168,10 +168,14 @@ def show():
                             — {esc(e.get('action','').replace('_',' ').title())}
                         </div>
                         <div style="font-size:11px;color:#666;margin-top:2px">{esc(detail)}</div>
-                        <div style="font-size:10px;color:#aaa;margin-top:2px">
+                        <div style="font-size:12px;color:#595959;margin-top:2px">
                             {esc(e.get('timestamp',''))} · {esc(e.get('module',''))}
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
         else:
             st.info("No activity logged yet.")
+
+
+if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
+    show()

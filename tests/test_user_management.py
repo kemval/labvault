@@ -3,7 +3,7 @@ import pytest
 
 import services
 from repo import core, users
-from test_app_login import login, no_network, run_app  # noqa: F401
+from test_app_login import go, registered_pages, login, no_network, run_app  # noqa: F401
 from test_services import BASE, audit, rows
 
 TEMP = "temporary-pass-1"
@@ -164,7 +164,7 @@ def test_temporary_password_must_be_changed_before_anything_else(lab_db, setting
     settings(demo="true")
     services.create_user("nina", "lab_tech", TEMP, "admin")
     at = login(run_app(), "nina", TEMP)
-    assert not at.sidebar.radio                                 # no navigation yet
+    assert "Dashboard" not in registered_pages(at)              # no navigation yet
     assert any("temporary password" in i.value for i in at.info)
 
     at.text_input(key="pw_current").input(TEMP)
@@ -172,13 +172,14 @@ def test_temporary_password_must_be_changed_before_anything_else(lab_db, setting
     at.text_input(key="pw_confirm").input(NEW)
     at.button[0].click().run()
     assert not at.exception, at.exception
-    assert at.sidebar.radio and account("nina")["must_change_password"] == 0
+    assert "Dashboard" in registered_pages(at)
+    assert account("nina")["must_change_password"] == 0
 
 
 def test_mismatched_new_passwords_change_nothing(lab_db, settings):
     settings(demo="true")
     at = login(run_app(), "kembly", "lab2024")
-    at.sidebar.radio[0].set_value("🔑  My Account").run()
+    go(at, "My Account")
     at.text_input(key="pw_current").input("lab2024")
     at.text_input(key="pw_new").input(NEW)
     at.text_input(key="pw_confirm").input(NEW + "x")
@@ -200,15 +201,15 @@ def test_disabling_ends_the_users_session(lab_db, settings):
 def test_role_change_applies_at_the_next_click(lab_db, settings):
     settings(demo="true")
     at = login(run_app(), "maria", "lab2024")
-    assert "⚙️  Admin" not in at.sidebar.radio[0].options
+    assert "Admin" not in registered_pages(at)
     services.change_role("maria", "admin", "admin", "new QA lead")
     at.run()
-    assert "⚙️  Admin" in at.sidebar.radio[0].options
+    assert "Admin" in registered_pages(at)
 
 
 def admin_page():
     at = login(run_app(), "admin", "admin123")
-    at.sidebar.radio[0].set_value("⚙️  Admin").run()
+    go(at, "Admin")
     assert not at.exception, at.exception
     return at
 
