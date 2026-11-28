@@ -48,6 +48,7 @@ def test_sample_tracking_escapes_stored_values(fresh_db, settings):
 
     at = login(run_app(), "admin", "admin123")
     at.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
+    at.selectbox(key="trk_open").set_value("S-X").run()     # the detail panel is HTML
     assert not at.exception, at.exception
     assert_escaped(at)
 

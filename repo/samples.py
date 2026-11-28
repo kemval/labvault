@@ -2,7 +2,7 @@
 repo/samples.py — sample rows.
 """
 
-from domain import REVIEW_APPROVED
+from domain import PRIORITIES, REVIEW_APPROVED
 from repo.core import get_conn, run_in
 
 
@@ -56,6 +56,74 @@ def all_samples(status_filter=None):
         rows = conn.execute(f"{select} ORDER BY id DESC").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# The orders the tracking page offers. Every one ends on id so paging is stable.
+_PRIORITY_RANK = "CASE priority " + " ".join(
+    f"WHEN '{p}' THEN {i}" for i, p in enumerate(PRIORITIES)) + f" ELSE {len(PRIORITIES)} END"
+SAMPLE_SORTS = {
+    "newest":     "samples.id DESC",
+    "priority":   f"{_PRIORITY_RANK}, samples.id DESC",
+    "collection": "collection_date, samples.id",
+    "sample_id":  "sample_id, samples.id",
+}
+
+# Only what the tracking table shows; the detail panel loads the full row.
+_LIST_COLUMNS = ("sample_id, product_name, status, priority, assigned_to, "
+                 "collection_date, sample_type, is_simulated")
+
+
+def _like(text: str) -> str:
+    """A LIKE pattern matching `text` literally anywhere (\\ escapes % and _)."""
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def find_samples(status=None, priority=None, search="", assigned_to=None,
+                 unassigned=False, sort="newest", limit=25, offset=0):
+    """
+    One page of samples for the tracking table, filtered and sorted in SQL,
+    plus the number of matches: (rows, total). `assigned_to` keeps one
+    user's samples; `unassigned` keeps those with no assignee. `search`
+    matches the sample ID or product name, case-insensitively.
+    """
+    where, args = [], []
+    if status:
+        where.append("status = ?")
+        args.append(status)
+    if priority:
+        where.append("priority = ?")
+        args.append(priority)
+    if search.strip():
+        where.append("(sample_id LIKE ? ESCAPE '\\' OR product_name LIKE ? ESCAPE '\\')")
+        args += [_like(search.strip())] * 2
+    if unassigned:
+        where.append("assigned_to IS NULL")
+    elif assigned_to:
+        where.append("assigned_to = ?")
+        args.append(assigned_to)
+    clause = f" WHERE {' AND '.join(where)}" if where else ""
+    order = SAMPLE_SORTS[sort]
+    conn = get_conn()
+    total = conn.execute(f"SELECT COUNT(*) FROM samples{clause}", args).fetchone()[0]
+    rows = conn.execute(f"SELECT {_LIST_COLUMNS} FROM samples{clause} "
+                        f"ORDER BY {order} LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
+    conn.close()
+    return [dict(r) for r in rows], total
+
+
+def sample_detail(sample_id: str):
+    """
+    One sample with what the tracking detail panel needs: the review counts
+    (for the completion rule) and its protocol's name. None if it doesn't exist.
+    """
+    conn = get_conn()
+    row = conn.execute(f"""
+        SELECT samples.*, {REVIEW_COUNTS}, p.name AS protocol_name
+        FROM samples LEFT JOIN protocols p ON p.id = samples.protocol_id
+        WHERE samples.sample_id = ?""", (sample_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def recent_samples(limit: int = 8):

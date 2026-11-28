@@ -74,6 +74,7 @@ def test_tracking_page_requires_a_reason(lab_db, settings):
     sample_id = services.register_sample(BASE, "admin")
     at = login(run_app(), "kembly", "lab2024")
     at.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
+    at.selectbox(key="trk_open").set_value(sample_id).run()
     at.selectbox(key=f"status_{sample_id}").set_value("In Progress")
     at.button(key=f"save_{sample_id}").click().run()
     assert any("reason" in e.value for e in at.error)

@@ -63,6 +63,18 @@ def get_all_samples(status_filter=None):
 
 
 @st.cache_data(ttl=30)
+def find_samples(status=None, priority=None, search="", assigned_to=None,
+                 unassigned=False, sort="newest", limit=25, offset=0):
+    return samples.find_samples(status, priority, search, assigned_to, unassigned,
+                                sort, limit, offset)
+
+
+@st.cache_data(ttl=30)
+def get_sample_detail(sample_id: str):
+    return samples.sample_detail(sample_id)
+
+
+@st.cache_data(ttl=30)
 def get_recent_samples(limit: int = 8):
     return samples.recent_samples(limit)
 
@@ -148,8 +160,8 @@ def get_all_specifications():
 
 def clear_data_caches():
     """Samples, results and the audit trail — every data write affects these."""
-    for cached in (get_all_samples, get_recent_samples, count_samples_by_status,
-                   count_samples_by_priority, count_simulated, sample_exists,
+    for cached in (get_all_samples, find_samples, get_sample_detail, get_recent_samples,
+                   count_samples_by_status, count_samples_by_priority, count_simulated, sample_exists,
                    get_results_for_sample, get_all_results, get_oos_results,
                    get_results_awaiting_review, get_all_investigations,
                    count_oos_results):

@@ -128,9 +128,10 @@ def test_dashboard_badges_only_simulated_samples(mixed_app):
 def test_tracking_labels_simulated_samples(mixed_app):
     mixed_app.sidebar.radio[0].set_value("🔬  Sample Tracking").run()
     assert not mixed_app.exception, mixed_app.exception
-    labels = {e.label for e in mixed_app.expander}
-    assert any("D-0001-2024" in label and "SIMULATED" in label for label in labels)
-    assert any("M-1" in label and "SIMULATED" not in label for label in labels)
+    table = mixed_app.dataframe[0].value.set_index("Sample ID")["Simulated"]
+    assert (table["D-0001-2024"], table["M-1"]) == ("Yes", "No")
+    mixed_app.selectbox(key="trk_open").set_value("D-0001-2024").run()
+    assert any("SIMULATED" in h.value for h in mixed_app.subheader)
 
 
 # ── reports ─────────────────────────────────────────────────────────────────

@@ -164,12 +164,14 @@ def open_page(lab_db, settings, username, page):
 
 def test_tracking_offers_only_allowed_statuses(sid, lab_db, settings):
     at = open_page(lab_db, settings, "kembly", "🔬  Sample Tracking")
+    at.selectbox(key="trk_open").set_value(sid).run()
     assert at.selectbox(key=f"status_{sid}").options == [PENDING, WIP, REJECTED]
     assert at.selectbox(key=f"assign_{sid}").options == ["kembly"]
 
 
 def test_tracking_is_read_only_for_other_techs(sid, lab_db, settings):
     at = open_page(lab_db, settings, "carlos", "🔬  Sample Tracking")
+    at.selectbox(key="trk_open").set_value(sid).run()
     assert f"status_{sid}" not in [w.key for w in at.selectbox]
     assert any("only the assignee or an admin" in c.value for c in at.caption)
 
