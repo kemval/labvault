@@ -545,7 +545,13 @@ page from a cold cache. Large lists are paged in SQL and report totals are SQL a
 pages stay well under 100 ms at 10,000 samples (ADR 0020). A test fails if the Test Results
 page's query count grows with the number of samples.
 
-### Errors and logs
+### Validation (draft)
+
+`docs/validation/` holds a **draft** GxP validation package, which is not an executed validation (ADR 0027):
+- the requirements specification, the risk assessment (GAMP 5) and the traceability matrix, all generated from `docs/validation/requirements.toml` by `python scripts/traceability.py`. CI fails if a requirement has no test or a document is out of date;
+- [the validation plan](docs/validation/validation-plan.md), which lists what a regulated lab must still do (IQ/OQ/PQ, SOPs, approvals) and the known gaps.
+
+## Errors and logs
 
 Users never see exception text or tracebacks. An unexpected error shows a plain message with
 a short reference, for example *"The PDF report could not be built. … reference: **3f9c1a2b**"*.

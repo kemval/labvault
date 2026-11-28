@@ -1,0 +1,828 @@
+# LabVault requirements: the single source for the requirements specification,
+# the risk assessment and the traceability matrix (roadmap 5.5, ADR 0027).
+#
+# DRAFT, not an executed validation. Edit this file, then regenerate:
+#     python scripts/traceability.py           # writes docs/validation/*.md
+#     python scripts/traceability.py --check   # CI: fails if stale or untraced
+#
+# impact      effect on product quality, patient safety or data integrity if the
+#             requirement fails: H / M / L
+# likelihood  how likely a failure is without the listed controls: H / M / L
+# detection   how likely a failure is noticed before harm: H (likely) / M / L
+# Risk class (impact x likelihood) and priority (class x detection) follow
+# GAMP 5's risk-assessment method; see scripts/traceability.py.
+# tests       "file.py::test_name" in tests/; every requirement needs at least one.
+
+[[requirement]]
+id = "ACC-01"
+area = "Access control"
+title = "Each user signs in with a unique account and a password stored only as a salted, slow hash."
+regulation = ["21 CFR 11.100(a)", "21 CFR 11.300(a)", "Annex 11 §12.1"]
+impact = "H"
+likelihood = "M"
+detection = "L"
+controls = "scrypt with per-password salt; legacy hashes upgraded at sign-in; unparseable hashes never match."
+adrs = ["0013"]
+tests = [
+  "test_auth_security.py::test_hashes_are_salted_and_verify",
+  "test_auth_security.py::test_unparseable_hashes_never_match",
+  "test_auth_security.py::test_cost_change_triggers_rehash",
+  "test_auth_security.py::test_migration_6_wraps_legacy_sha256_hashes",
+  "test_auth_security.py::test_legacy_hash_is_upgraded_at_next_sign_in",
+  "test_auth_security.py::test_success_returns_user_without_hash",
+]
+
+[[requirement]]
+id = "ACC-02"
+area = "Access control"
+title = "Repeated failed sign-ins lock the account for a set time, without revealing whether the account exists."
+regulation = ["21 CFR 11.300(d)", "Annex 11 §12.1"]
+impact = "H"
+likelihood = "M"
+detection = "M"
+controls = "Failure counter and lockout in the users table; identical message for locked and unknown accounts."
+adrs = ["0013"]
+tests = [
+  "test_auth_security.py::test_repeated_failures_lock_the_account",
+  "test_auth_security.py::test_lock_expires",
+  "test_auth_security.py::test_lock_lasts_the_configured_time",
+  "test_auth_security.py::test_success_resets_the_failure_count",
+  "test_auth_security.py::test_unknown_user_changes_no_account",
+  "test_auth_security.py::test_locked_and_unknown_accounts_get_the_same_message",
+]
+
+[[requirement]]
+id = "ACC-03"
+area = "Access control"
+title = "An idle session is signed out after the configured time."
+regulation = ["21 CFR 11.10(d)", "Annex 11 §12.1"]
+impact = "M"
+likelihood = "M"
+detection = "L"
+controls = "Activity timestamp checked on every interaction; the sign-out is audited."
+adrs = ["0013"]
+tests = [
+  "test_auth_security.py::test_idle_session_is_signed_out",
+  "test_auth_security.py::test_active_session_stays_signed_in",
+]
+
+[[requirement]]
+id = "ACC-04"
+area = "Access control"
+title = "Only administrators reach administration pages and actions (accounts, specifications, closing investigations)."
+regulation = ["21 CFR 11.10(d)", "21 CFR 11.10(g)", "Annex 11 §12.2"]
+impact = "H"
+likelihood = "M"
+detection = "M"
+controls = "Role checks in the service layer (enforced) and in the views (defence in depth); admin-only pages not registered for lab techs."
+adrs = ["0011", "0017", "0018"]
+tests = [
+  "test_pages_smoke.py::test_lab_tech_navigation_hides_admin_only_pages",
+  "test_pages_smoke.py::test_admin_sees_every_page",
+  "test_user_management.py::test_only_admins_manage_accounts",
+  "test_specifications.py::test_only_admins_maintain_specifications",
+  "test_specifications.py::test_lab_tech_sees_specs_read_only",
+  "test_investigations.py::test_only_admins_close",
+  "test_investigations.py::test_lab_tech_sees_investigations_read_only",
+]
+
+[[requirement]]
+id = "ACC-05"
+area = "Access control"
+title = "Outside demo mode there are no default or published credentials; the initial admin password is set by the operator."
+regulation = ["21 CFR 11.300(b)", "Annex 11 §12.1"]
+impact = "H"
+likelihood = "H"
+detection = "L"
+controls = "Secure by default; the app refuses to start without an admin password or with demo passwords in the database."
+adrs = ["0001"]
+tests = [
+  "test_seed_users.py::test_secure_mode_seeds_only_configured_admin",
+  "test_seed_users.py::test_secure_mode_without_password_refuses",
+  "test_seed_users.py::test_secure_mode_rejects_short_password",
+  "test_seed_users.py::test_secure_mode_refuses_db_with_demo_passwords",
+  "test_seed_users.py::test_demo_mode_requires_explicit_opt_in",
+  "test_app_login.py::test_secure_mode_hides_credentials_and_rejects_demo_password",
+  "test_app_login.py::test_unconfigured_deployment_does_not_start",
+]
+
+[[requirement]]
+id = "ACC-06"
+area = "Access control"
+title = "Account changes (create, reset, unlock, disable, role) are made by an admin, with a reason, and audited; temporary passwords must be replaced at first sign-in."
+regulation = ["21 CFR 11.10(d)", "21 CFR 11.300(b)", "Annex 11 §12.3"]
+impact = "H"
+likelihood = "M"
+detection = "M"
+controls = "Account services require a reason and write an audit row; must_change_password blocks everything else until changed."
+adrs = ["0017"]
+tests = [
+  "test_user_management.py::test_admin_creates_account_that_must_change_its_password",
+  "test_user_management.py::test_admin_actions_need_a_reason",
+  "test_user_management.py::test_admin_cannot_change_own_account_or_system_accounts",
+  "test_user_management.py::test_reset_sets_a_temporary_password_and_clears_the_lock",
+  "test_user_management.py::test_temporary_password_must_be_changed_before_anything_else",
+  "test_user_management.py::test_new_password_must_differ_and_follow_the_rules",
+  "test_user_management.py::test_role_change_is_audited_and_blocked_by_open_samples",
+  "test_user_management.py::test_invalid_accounts_are_refused",
+]
+
+[[requirement]]
+id = "ACC-07"
+area = "Access control"
+title = "A disabled account cannot sign in or change data, and its open session ends at the next interaction."
+regulation = ["21 CFR 11.10(d)", "Annex 11 §12.3"]
+impact = "H"
+likelihood = "L"
+detection = "M"
+controls = "Account re-read on every rerun; services refuse inactive accounts."
+adrs = ["0017"]
+tests = [
+  "test_user_management.py::test_disabled_account_cannot_sign_in_or_change_data",
+  "test_user_management.py::test_disabling_ends_the_users_session",
+  "test_user_management.py::test_role_change_applies_at_the_next_click",
+  "test_user_management.py::test_disable_is_blocked_while_samples_are_open",
+  "test_user_management.py::test_samples_cannot_be_assigned_to_a_disabled_account",
+]
+
+[[requirement]]
+id = "ACC-08"
+area = "Access control"
+title = "System accounts (import, simulator, migrations) can never sign in, sign or be assigned work."
+regulation = ["21 CFR 11.10(d)", "21 CFR 11.100(a)"]
+impact = "M"
+likelihood = "L"
+detection = "M"
+controls = "System role excluded from sign-in, signing and assignment; enforced in services and the schema."
+adrs = ["0007", "0011"]
+tests = [
+  "test_schema_constraints.py::test_system_accounts_exist_and_cannot_log_in",
+  "test_schema_constraints.py::test_system_accounts_are_not_lab_techs",
+  "test_review.py::test_system_accounts_cannot_sign",
+  "test_lifecycle.py::test_system_and_unknown_accounts_cannot_change_data",
+]
+
+[[requirement]]
+id = "AUD-01"
+area = "Audit trail"
+title = "Every change to GxP data writes its audit entry in the same transaction: both are stored, or neither."
+regulation = ["21 CFR 11.10(e)", "Annex 11 §9", "ALCOA+ Attributable, Complete"]
+impact = "H"
+likelihood = "M"
+detection = "L"
+controls = "Service layer: one transaction per use case, including the audit row."
+adrs = ["0005", "0008"]
+tests = [
+  "test_services.py::test_register_sample_writes_sample_and_audit",
+  "test_services.py::test_register_sample_rolls_back_when_audit_fails",
+  "test_services.py::test_update_rolls_back_when_audit_fails",
+  "test_services.py::test_record_result_writes_result_and_audit",
+  "test_services.py::test_record_result_rolls_back_when_audit_fails",
+  "test_services.py::test_create_protocol_writes_protocol_and_audit",
+  "test_services.py::test_create_protocol_rolls_back_when_audit_fails",
+  "test_layering.py::test_views_never_write_sql",
+]
+
+[[requirement]]
+id = "AUD-02"
+area = "Audit trail"
+title = "Audit entries cannot be changed or deleted, by the application or directly in the database."
+regulation = ["21 CFR 11.10(e)", "Annex 11 §9", "ALCOA+ Enduring"]
+impact = "H"
+likelihood = "L"
+detection = "L"
+controls = "Database triggers abort UPDATE and DELETE on audit_trail; the restore check verifies they exist."
+adrs = ["0008", "0023"]
+tests = [
+  "test_audit_trail.py::test_audit_rows_cannot_be_changed_or_deleted",
+  "test_audit_trail.py::test_migration_4_adds_columns_and_triggers",
+  "test_durable_storage.py::test_restore_check_reports_a_missing_integrity_trigger",
+]
+
+[[requirement]]
+id = "AUD-03"
+area = "Audit trail"
+title = "A change records who, when, the old value, the new value and the reason; a change without a reason is refused."
+regulation = ["21 CFR 11.10(e)", "Annex 11 §9", "ALCOA+ Attributable, Original"]
+impact = "H"
+likelihood = "M"
+detection = "M"
+controls = "Update services compute old and new values and require a reason; no-op saves write nothing."
+adrs = ["0008"]
+tests = [
+  "test_audit_trail.py::test_change_records_old_value_new_value_and_reason",
+  "test_audit_trail.py::test_change_without_reason_is_refused_and_writes_nothing",
+  "test_audit_trail.py::test_saving_without_changes_needs_no_reason",
+  "test_audit_trail.py::test_tracking_page_requires_a_reason",
+  "test_services.py::test_update_changes_both_fields_atomically_with_old_and_new_values",
+  "test_services.py::test_noop_update_writes_nothing",
+]
+
+[[requirement]]
+id = "AUD-04"
+area = "Audit trail"
+title = "Sign-ins, failed sign-ins and sign-outs are audited."
+regulation = ["21 CFR 11.10(e)", "Annex 11 §12.4"]
+impact = "M"
+likelihood = "M"
+detection = "M"
+controls = "Authentication services write audit rows; attempted usernames are truncated."
+adrs = ["0008", "0013"]
+tests = [
+  "test_audit_trail.py::test_sign_in_success_and_failures_are_audited",
+  "test_audit_trail.py::test_attempted_username_is_truncated",
+  "test_audit_trail.py::test_app_sign_in_and_sign_out_are_audited",
+]
+
+[[requirement]]
+id = "AUD-05"
+area = "Audit trail"
+title = "The full audit trail can be searched and reviewed, including the oldest entries."
+regulation = ["21 CFR 11.10(e)", "Annex 11 §9"]
+impact = "M"
+likelihood = "M"
+detection = "M"
+controls = "SQL-paged, filtered audit search; newest first."
+adrs = ["0008", "0016"]
+tests = [
+  "test_audit_trail.py::test_search_pages_through_everything_newest_first",
+  "test_audit_trail.py::test_search_filters_in_sql",
+  "test_audit_trail.py::test_audit_page_reaches_old_entries",
+]
+
+[[requirement]]
+id = "AUD-06"
+area = "Audit trail"
+title = "Report exports are audited when the file is downloaded."
+regulation = ["21 CFR 11.10(e)"]
+impact = "L"
+likelihood = "M"
+detection = "M"
+controls = "Download callback writes the audit row; building a report writes none."
+adrs = ["0008"]
+tests = [
+  "test_audit_trail.py::test_download_callback_audits_the_export",
+  "test_audit_trail.py::test_generating_a_report_writes_no_audit_row",
+]
+
+[[requirement]]
+id = "ESG-01"
+area = "Electronic signatures"
+title = "A result review is an electronic signature: password re-entered, and signer, meaning and time recorded and audited."
+regulation = ["21 CFR 11.50", "21 CFR 11.70", "21 CFR 11.200(a)", "Annex 11 §14"]
+impact = "H"
+likelihood = "M"
+detection = "L"
+controls = "Signing service verifies the password and stores an append-only signature linked to the result."
+adrs = ["0014"]
+tests = [
+  "test_review.py::test_approval_is_recorded_with_meaning_signer_and_audit",
+  "test_review.py::test_unknown_meaning_is_refused",
+  "test_review.py::test_wrong_password_signs_nothing_and_is_audited",
+  "test_review.py::test_reviewer_signs_on_the_page",
+  "test_review.py::test_wrong_password_on_the_page_shows_an_error",
+]
+
+[[requirement]]
+id = "ESG-02"
+area = "Electronic signatures"
+title = "Second-person review: the analyst who recorded a result cannot sign it."
+regulation = ["21 CFR 211.194(a)(8)", "21 CFR 11.10(g)"]
+impact = "H"
+likelihood = "M"
+detection = "L"
+controls = "Checked in the service and by a database trigger; the review list hides own results."
+adrs = ["0014"]
+tests = [
+  "test_review.py::test_anyone_but_the_analyst_may_sign",
+  "test_review.py::test_analyst_cannot_sign_own_result",
+  "test_review.py::test_database_also_refuses_self_signature",
+  "test_review.py::test_analyst_sees_no_own_results_to_review",
+]
+
+[[requirement]]
+id = "ESG-03"
+area = "Electronic signatures"
+title = "Signatures are permanent; a rejection needs a reason and the result no longer counts."
+regulation = ["21 CFR 11.70", "Annex 11 §14"]
+impact = "H"
+likelihood = "L"
+detection = "M"
+controls = "Append-only signatures table (triggers); rejection reason required; rejected results excluded from completion."
+adrs = ["0014"]
+tests = [
+  "test_review.py::test_signatures_are_permanent",
+  "test_review.py::test_rejection_needs_a_reason",
+  "test_review.py::test_rejected_result_does_not_count_and_a_retest_is_needed",
+  "test_review.py::test_only_results_on_in_progress_samples_can_be_signed",
+]
+
+[[requirement]]
+id = "ESG-04"
+area = "Electronic signatures"
+title = "Wrong passwords at signing count toward account lockout."
+regulation = ["21 CFR 11.300(d)"]
+impact = "M"
+likelihood = "L"
+detection = "M"
+controls = "Signing shares the sign-in failure counter."
+adrs = ["0013", "0014"]
+tests = [
+  "test_review.py::test_wrong_signature_passwords_count_toward_lockout",
+  "test_investigations.py::test_wrong_password_keeps_it_open_and_counts_toward_lockout",
+  "test_user_management.py::test_wrong_current_password_counts_toward_lockout",
+]
+
+[[requirement]]
+id = "RES-01"
+area = "Results and specifications"
+title = "The system judges each result against the current approved specification and stores which specification version it used; limits sent by a caller are ignored."
+regulation = ["21 CFR 211.160(a)", "21 CFR 211.194(a)", "Annex 11 §6", "ALCOA+ Accurate"]
+impact = "H"
+likelihood = "M"
+detection = "L"
+controls = "Result service looks up the specification; spec id and version stored with the result."
+adrs = ["0012"]
+tests = [
+  "test_result_entry.py::test_quantitative_results_are_evaluated_against_the_spec",
+  "test_result_entry.py::test_service_stores_the_spec_it_judged_against",
+  "test_result_entry.py::test_limits_sent_by_the_caller_are_ignored",
+  "test_result_entry.py::test_qualitative_tests_use_the_recorded_outcome",
+  "test_result_entry.py::test_form_shows_the_spec_and_offers_no_limit_inputs",
+  "test_result_entry.py::test_form_flags_contamination_against_a_zero_limit",
+  "test_result_entry.py::test_form_stores_qualitative_fail",
+]
+
+[[requirement]]
+id = "RES-02"
+area = "Results and specifications"
+title = "A result cannot be recorded without the data it needs: a value for quantitative tests, an outcome for qualitative ones, and a specification."
+regulation = ["21 CFR 211.194(a)", "Annex 11 §5"]
+impact = "H"
+likelihood = "M"
+detection = "M"
+controls = "Domain validation in the service; the form blocks tests without a specification."
+adrs = ["0012"]
+tests = [
+  "test_result_entry.py::test_quantitative_result_requires_a_value",
+  "test_result_entry.py::test_quantitative_result_requires_a_specification",
+  "test_result_entry.py::test_quantitative_test_rejects_an_outcome",
+  "test_result_entry.py::test_qualitative_test_needs_an_outcome_and_no_value",
+  "test_result_entry.py::test_unknown_test_is_rejected",
+  "test_result_entry.py::test_numeric_result_without_spec_is_blocked",
+  "test_result_entry.py::test_form_rejects_missing_value_and_stores_nothing",
+  "test_result_entry.py::test_form_blocks_tests_without_a_spec",
+]
+
+[[requirement]]
+id = "RES-03"
+area = "Results and specifications"
+title = "Specifications are master data under change control: admin only, reason required, versioned, applied to new results only."
+regulation = ["21 CFR 211.160(a)", "Annex 11 §10"]
+impact = "H"
+likelihood = "M"
+detection = "M"
+controls = "Specification service with version check, reason and audit; production starts without default limits."
+adrs = ["0012"]
+tests = [
+  "test_specifications.py::test_admin_creates_then_changes_with_reason_old_and_new_values",
+  "test_specifications.py::test_change_needs_a_reason",
+  "test_specifications.py::test_stale_change_is_rejected",
+  "test_specifications.py::test_saving_unchanged_limits_writes_nothing",
+  "test_specifications.py::test_invalid_specifications_are_refused",
+  "test_specifications.py::test_secure_instance_starts_without_specs",
+  "test_specifications.py::test_admin_changes_a_spec_on_the_page",
+  "test_result_entry.py::test_spec_change_applies_to_new_results_only",
+]
+
+[[requirement]]
+id = "RES-04"
+area = "Results and specifications"
+title = "Results can be recorded only on In Progress samples, by the assigned analyst or an admin."
+regulation = ["21 CFR 11.10(f)", "21 CFR 11.10(g)"]
+impact = "M"
+likelihood = "M"
+detection = "M"
+controls = "Lifecycle rules in the domain layer, enforced by the result service; the form lists only eligible samples."
+adrs = ["0011"]
+tests = [
+  "test_lifecycle.py::test_result_entry_rules",
+  "test_lifecycle.py::test_results_only_on_in_progress_samples_by_assignee_or_admin",
+  "test_lifecycle.py::test_result_form_lists_only_samples_open_to_the_user",
+  "test_queries.py::test_loggable_samples_are_selected_in_sql",
+]
+
+[[requirement]]
+id = "OOS-01"
+area = "OOS investigations"
+title = "Every out-of-specification result opens an investigation automatically."
+regulation = ["21 CFR 211.192", "FDA OOS Guidance (2022)"]
+impact = "H"
+likelihood = "M"
+detection = "L"
+controls = "Result service opens the investigation in the same transaction; migration back-filled existing OOS results."
+adrs = ["0015"]
+tests = [
+  "test_investigations.py::test_an_oos_result_opens_an_investigation",
+  "test_investigations.py::test_a_pass_opens_none",
+  "test_investigations.py::test_migration_8_backfills_unsigned_oos_on_in_progress_samples",
+  "test_investigations.py::test_fda_import_opens_investigations_for_in_progress_oos_only",
+]
+
+[[requirement]]
+id = "OOS-02"
+area = "OOS investigations"
+title = "An OOS result cannot be signed while its investigation is open; the conclusion decides the signature's meaning."
+regulation = ["21 CFR 211.192", "FDA OOS Guidance (2022)"]
+impact = "H"
+likelihood = "M"
+detection = "M"
+controls = "Signing service checks the investigation; the review tab offers only the concluded meaning."
+adrs = ["0015"]
+tests = [
+  "test_investigations.py::test_open_investigation_blocks_signing",
+  "test_investigations.py::test_conclusion_decides_the_signature",
+  "test_investigations.py::test_confirmed_oos_is_approved_and_the_sample_completes_failing",
+  "test_investigations.py::test_review_tab_offers_only_the_concluded_meaning",
+]
+
+[[requirement]]
+id = "OOS-03"
+area = "OOS investigations"
+title = "An investigation is closed by an admin who is not the analyst, with a conclusion, findings and password; once closed it is final."
+regulation = ["21 CFR 211.192", "21 CFR 11.200(a)"]
+impact = "H"
+likelihood = "L"
+detection = "M"
+controls = "Close service checks role, independence and password; database triggers keep closed investigations final."
+adrs = ["0015"]
+tests = [
+  "test_investigations.py::test_close_is_recorded_and_audited",
+  "test_investigations.py::test_admin_cannot_close_on_own_result",
+  "test_investigations.py::test_closed_is_final",
+  "test_investigations.py::test_close_needs_a_conclusion_and_findings",
+  "test_investigations.py::test_database_guards_investigations",
+  "test_investigations.py::test_admin_closes_on_the_page",
+]
+
+[[requirement]]
+id = "OOS-04"
+area = "OOS investigations"
+title = "OOS counts on the dashboard and in reports separate confirmed, under investigation, not investigated and invalidated results, and headline totals exclude invalidated ones."
+regulation = ["21 CFR 211.192", "21 CFR 211.180(e)"]
+impact = "M"
+likelihood = "M"
+detection = "M"
+controls = "One category rule, implemented in SQL and Python and tested to agree."
+adrs = ["0019"]
+tests = [
+  "test_reports.py::test_oos_category",
+  "test_reports.py::test_sql_and_python_categories_agree",
+  "test_reports.py::test_breakdown_counts_everything_but_headline_excludes_invalidated",
+  "test_reports.py::test_dashboard_alerts_leave_out_invalidated_results",
+  "test_reports.py::test_dashboard_shows_the_counted_total",
+  "test_dashboard.py::test_total_samples_counts_every_sample",
+]
+
+[[requirement]]
+id = "LIF-01"
+area = "Sample lifecycle"
+title = "Sample status changes follow the defined lifecycle; completion needs reviewed, approved results; reopening is admin-only; rejection needs confirmation."
+regulation = ["21 CFR 11.10(f)"]
+impact = "H"
+likelihood = "M"
+detection = "M"
+controls = "Transition matrix and permission rules in the domain layer; the tracking page offers only allowed changes."
+adrs = ["0011"]
+tests = [
+  "test_lifecycle.py::test_transition_matrix",
+  "test_lifecycle.py::test_completing_needs_reviewed_and_approved_results",
+  "test_lifecycle.py::test_completion_requires_an_approved_result_then_reopen_is_admin_only",
+  "test_lifecycle.py::test_change_rules",
+  "test_lifecycle.py::test_other_tech_cannot_change_sample_and_nothing_is_written",
+  "test_lifecycle.py::test_tracking_offers_only_allowed_statuses",
+  "test_lifecycle.py::test_tracking_is_read_only_for_other_techs",
+  "test_tracking_page.py::test_rejecting_needs_confirmation",
+]
+
+[[requirement]]
+id = "LIF-02"
+area = "Sample lifecycle"
+title = "Concurrent edits cannot silently overwrite each other: the first save wins and the second user is told."
+regulation = ["21 CFR 11.10(a)", "ALCOA+ Accurate"]
+impact = "M"
+likelihood = "M"
+detection = "M"
+controls = "Optimistic version check on samples; stale saves rejected with the current values."
+adrs = ["0005"]
+tests = [
+  "test_services.py::test_stale_update_is_rejected_and_first_writer_wins",
+  "test_services.py::test_rejected_update_clears_stale_cache",
+  "test_tracking_page.py::test_concurrent_edit_is_rejected_and_other_users_change_kept",
+  "test_tracking_page.py::test_reload_adopts_current_values_then_saves",
+]
+
+[[requirement]]
+id = "DAT-01"
+area = "Data integrity"
+title = "The database itself rejects invalid values, unknown accounts and orphaned references."
+regulation = ["21 CFR 11.10(a)", "Annex 11 §5", "ALCOA+ Accurate"]
+impact = "H"
+likelihood = "M"
+detection = "L"
+controls = "CHECK and FOREIGN KEY constraints matching the domain constants."
+adrs = ["0007", "0009"]
+tests = [
+  "test_schema_constraints.py::test_sample_rejects_invalid_values",
+  "test_schema_constraints.py::test_sample_rejects_invalid_flags",
+  "test_schema_constraints.py::test_result_rejects_invalid_values",
+  "test_schema_constraints.py::test_user_role_is_checked",
+  "test_schema_constraints.py::test_writes_must_name_a_real_account",
+  "test_schema_constraints.py::test_referenced_user_cannot_be_deleted",
+  "test_domain.py::test_domain_values_match_the_database_constraints",
+]
+
+[[requirement]]
+id = "DAT-02"
+area = "Data integrity"
+title = "Schema upgrades apply each change exactly once, in order, atomically, and never lose rows."
+regulation = ["Annex 11 §10", "21 CFR 11.10(a)"]
+impact = "H"
+likelihood = "L"
+detection = "M"
+controls = "Versioned migrations, each in one write transaction; bad data stops the migration unchanged."
+adrs = ["0003", "0007"]
+tests = [
+  "test_migrations.py::test_migrations_apply_in_order_once",
+  "test_migrations.py::test_failed_migration_rolls_back_and_keeps_version",
+  "test_migrations.py::test_concurrent_startups_apply_each_migration_once",
+  "test_migrations.py::test_init_db_brings_new_database_to_latest_version",
+  "test_schema_constraints.py::test_migration_keeps_every_row_and_leaves_old_timestamps_empty",
+  "test_schema_constraints.py::test_migration_with_bad_data_stops_and_changes_nothing",
+]
+
+[[requirement]]
+id = "DAT-03"
+area = "Data integrity"
+title = "Timestamps are set by the system, in UTC."
+regulation = ["21 CFR 11.10(e)", "ALCOA+ Contemporaneous"]
+impact = "M"
+likelihood = "L"
+detection = "M"
+controls = "Column defaults and services use UTC ISO-8601; updates bump updated_at."
+adrs = ["0007"]
+tests = [
+  "test_schema_constraints.py::test_new_rows_get_utc_timestamps_and_updates_bump_updated_at",
+]
+
+[[requirement]]
+id = "DAT-04"
+area = "Data integrity"
+title = "Simulated demo data is flagged and labelled wherever it appears, and can never enter a production instance."
+regulation = ["ALCOA+ Original, Accurate", "21 CFR 11.10(a)"]
+impact = "H"
+likelihood = "M"
+detection = "M"
+controls = "is_simulated flag and labels; simulator demo-only; secure start-up refuses simulated data; production build cannot run as a demo."
+adrs = ["0004", "0026"]
+tests = [
+  "test_simulated_flag.py::test_new_imports_are_flagged_and_attributed_to_simulator",
+  "test_simulated_flag.py::test_manually_registered_data_is_real",
+  "test_simulated_flag.py::test_notice_shows_simulated_counts",
+  "test_simulated_flag.py::test_tracking_labels_simulated_samples",
+  "test_simulated_flag.py::test_excel_marks_simulated_rows",
+  "test_simulated_flag.py::test_pdf_states_simulated_counts",
+  "test_production_separation.py::test_the_import_refuses_outside_demo_mode_before_fetching",
+  "test_production_separation.py::test_secure_instance_offers_no_import_and_no_auto_import",
+  "test_production_separation.py::test_secure_mode_refuses_a_database_with_simulated_data",
+  "test_production_separation.py::test_a_production_build_cannot_run_as_a_demo",
+  "test_production_separation.py::test_preflight",
+]
+
+[[requirement]]
+id = "DAT-05"
+area = "Data integrity"
+title = "Importing the same external records again never duplicates samples or results, and an import is all-or-nothing."
+regulation = ["ALCOA+ Accurate, Complete"]
+impact = "M"
+likelihood = "M"
+detection = "M"
+controls = "One write transaction per batch; results only for newly inserted samples; only-if-empty under the write lock."
+adrs = ["0002"]
+tests = [
+  "test_fda_import.py::test_reimport_of_same_records_adds_nothing",
+  "test_fda_import.py::test_overlapping_import_adds_only_new_samples_results",
+  "test_fda_import.py::test_duplicate_recall_within_one_batch_keeps_first_records_results",
+  "test_fda_import.py::test_concurrent_first_imports_import_once",
+  "test_fda_import.py::test_api_failure_reports_error_and_writes_nothing",
+  "test_dedupe_script.py::test_apply_removes_only_simulated_duplicates_with_backup_and_audit",
+]
+
+[[requirement]]
+id = "DAT-06"
+area = "Data integrity"
+title = "Stored text can never act as markup in pages or as formulas in exported spreadsheets."
+regulation = ["21 CFR 11.10(b)", "Annex 11 §12"]
+impact = "M"
+likelihood = "M"
+detection = "M"
+controls = "HTML escaping of stored values; formula-like cells exported as text; PDF values escaped."
+adrs = ["0019"]
+tests = [
+  "test_injection.py::test_dashboard_escapes_stored_values",
+  "test_injection.py::test_sample_tracking_escapes_stored_values",
+  "test_injection.py::test_excel_export_never_contains_formulas",
+  "test_reports.py::test_pdf_escapes_markup_in_values",
+]
+
+[[requirement]]
+id = "REP-01"
+area = "Reports"
+title = "Reports are complete and self-describing: every selected row, the filters, author, time (UTC) and page numbers."
+regulation = ["21 CFR 11.10(b)", "Annex 11 §8.1"]
+impact = "M"
+likelihood = "M"
+detection = "M"
+controls = "Reports built from the same filtered SQL as the on-screen summary; metadata block and page x of y."
+adrs = ["0019", "0020"]
+tests = [
+  "test_reports.py::test_pdf_lists_every_row_with_page_numbers_and_metadata",
+  "test_reports.py::test_excel_states_what_it_covers",
+  "test_reports.py::test_report_summary_counts_in_sql",
+  "test_reports.py::test_report_rows_match_the_summary_and_carry_categories",
+  "test_reports.py::test_reports_page_summarises_the_selection",
+  "test_reports.py::test_spec_text_never_prints_none",
+  "test_queries.py::test_report_filters_follow_the_multiselects",
+]
+
+[[requirement]]
+id = "BAK-01"
+area = "Backup and recovery"
+title = "Backups are verified when taken, and a restore never overwrites the current database or accepts a corrupt copy."
+regulation = ["21 CFR 11.10(c)", "Annex 11 §7.2"]
+impact = "H"
+likelihood = "M"
+detection = "M"
+controls = "Online backup API with integrity check; restore moves the current database aside."
+adrs = ["0023"]
+tests = [
+  "test_backup.py::test_backup_includes_committed_wal_data_while_app_is_running",
+  "test_backup.py::test_retention_keeps_newest_backups",
+  "test_backup.py::test_restore_round_trip_moves_current_db_aside",
+  "test_backup.py::test_corrupt_backup_is_refused_and_live_db_untouched",
+  "test_backup.py::test_cli_reports_errors_with_exit_code",
+]
+
+[[requirement]]
+id = "BAK-02"
+area = "Backup and recovery"
+title = "In production every committed change is replicated off the server, and a new server restores it automatically; production refuses to run without a replica."
+regulation = ["21 CFR 11.10(c)", "Annex 11 §7.1", "ALCOA+ Enduring, Available"]
+impact = "H"
+likelihood = "M"
+detection = "L"
+controls = "Litestream continuous replication; start-up restore; synchronous=FULL; container smoke test destroys and restores."
+adrs = ["0023", "0024"]
+tests = [
+  "test_durable_storage.py::test_start_refuses_to_run_without_a_replica",
+  "test_durable_storage.py::test_start_restores_if_needed_then_runs_the_app_under_litestream",
+  "test_durable_storage.py::test_connections_are_durable_and_wait_for_locks",
+  "test_durable_storage.py::test_litestream_config_uses_the_environment_and_keeps_30_days",
+  "test_durable_storage.py::test_secure_mode_without_a_replica_warns_the_admin",
+]
+
+[[requirement]]
+id = "BAK-03"
+area = "Backup and recovery"
+title = "A restored database can be checked before use: integrity, foreign keys, schema version and every integrity trigger."
+regulation = ["Annex 11 §7.2", "Annex 11 §11"]
+impact = "H"
+likelihood = "L"
+detection = "M"
+controls = "backup_db.py check; quarterly restore drill in the runbook."
+adrs = ["0023"]
+tests = [
+  "test_durable_storage.py::test_restore_check_passes_a_complete_database",
+  "test_durable_storage.py::test_restore_check_reports_a_missing_integrity_trigger",
+  "test_durable_storage.py::test_restore_check_refuses_a_database_newer_than_the_code",
+]
+
+[[requirement]]
+id = "OPS-01"
+area = "Operations"
+title = "Users never see exception details; each error is logged with a reference they can quote."
+regulation = ["Annex 11 §12", "OWASP A05"]
+impact = "L"
+likelihood = "M"
+detection = "M"
+controls = "App-wide handler, show_error, showErrorDetails=none, JSON logs."
+adrs = ["0021"]
+tests = [
+  "test_errors.py::test_failed_export_shows_a_reference_not_the_exception",
+  "test_errors.py::test_a_crashing_page_shows_a_reference_and_the_app_keeps_working",
+  "test_errors.py::test_log_lines_are_json_with_reference_and_traceback",
+  "test_errors.py::test_streamlit_never_shows_error_details",
+]
+
+[[requirement]]
+id = "OPS-02"
+area = "Operations"
+title = "The owner is alerted to errors without the alert carrying record data, and alerting can never break the app."
+regulation = ["Annex 11 §13"]
+impact = "M"
+likelihood = "M"
+detection = "M"
+controls = "Rate-limited ntfy alerts with message and reference only; background delivery; uptime and backup heartbeat monitors."
+adrs = ["0025"]
+tests = [
+  "test_alerts.py::test_an_alert_has_the_message_and_reference_but_no_details",
+  "test_alerts.py::test_repeats_are_held_back_for_ten_minutes",
+  "test_alerts.py::test_at_most_twenty_alerts_an_hour",
+  "test_alerts.py::test_a_broken_alert_channel_never_breaks_the_app",
+]
+
+[[requirement]]
+id = "OPS-03"
+area = "Operations"
+title = "A misconfigured or unhealthy production instance is detected: it refuses to start, or reports unhealthy."
+regulation = ["Annex 11 §4.7"]
+impact = "M"
+likelihood = "M"
+detection = "H"
+controls = "Container preflight; read-only health check of app and database."
+adrs = ["0024", "0026"]
+tests = [
+  "test_container.py::test_healthy_when_the_app_answers_and_the_database_has_a_schema",
+  "test_container.py::test_unhealthy_when_the_app_is_down",
+  "test_container.py::test_unhealthy_without_a_database_and_never_creates_one",
+  "test_production_separation.py::test_preflight",
+]
+
+[[requirement]]
+id = "OPS-04"
+area = "Operations"
+title = "Dependencies are pinned with hashes and checked for known vulnerabilities on every change and weekly."
+regulation = ["Annex 11 §3", "OWASP A06"]
+impact = "M"
+likelihood = "M"
+detection = "H"
+controls = "Hashed lock files; pip-audit gate with time-limited exceptions; Dependabot."
+adrs = ["0010", "0022"]
+tests = [
+  "test_audit_deps.py::test_valid_entries_and_comments",
+  "test_audit_deps.py::test_an_expired_exception_fails",
+  "test_audit_deps.py::test_entries_need_an_id_a_date_and_a_reason",
+  "test_audit_deps.py::test_the_committed_file_is_valid_today",
+]
+
+[[requirement]]
+id = "OPS-05"
+area = "Operations"
+title = "Secrets and local data never enter the repository or the image, and no usage data leaves the server."
+regulation = ["Annex 11 §12"]
+impact = "H"
+likelihood = "L"
+detection = "L"
+controls = ".gitignore and .dockerignore rules; settings from the environment only; usage statistics off."
+adrs = ["0024"]
+tests = [
+  "test_container.py::test_image_never_contains_local_data_or_secrets",
+  "test_container.py::test_secrets_stay_out_of_the_repository",
+  "test_container.py::test_image_verifies_litestream_and_runs_unprivileged",
+  "test_container.py::test_no_usage_statistics_leave_the_server",
+  "test_durable_storage.py::test_the_replica_is_shown_without_credentials",
+]
+
+[[requirement]]
+id = "OPS-06"
+area = "Operations"
+title = "Every page stays responsive at 10,000 samples."
+regulation = []
+impact = "L"
+likelihood = "M"
+detection = "H"
+controls = "Paged SQL, aggregates, query-count guard, page benchmark."
+adrs = ["0016", "0020"]
+tests = [
+  "test_queries.py::test_results_page_runs_the_same_queries_for_10_or_300_samples",
+  "test_queries.py::test_benchmark_runs_every_page_within_budget",
+  "test_tracking_page.py::test_page_stays_small_at_5000_samples",
+  "test_pages_smoke.py::test_page_renders",
+]
+
+[[requirement]]
+id = "OPS-07"
+area = "Operations"
+title = "The interface meets WCAG 2.2 AA for colour contrast and keyboard use."
+regulation = ["WCAG 2.2 AA"]
+impact = "L"
+likelihood = "M"
+detection = "M"
+controls = "Contrast scanner over the CSS and theme; form-based sign-in; text navigation labels."
+adrs = ["0018"]
+tests = [
+  "test_accessibility.py::test_text_colours_meet_wcag_aa",
+  "test_accessibility.py::test_theme_colours_meet_aa",
+  "test_accessibility.py::test_sign_in_fields_are_in_a_form_so_enter_submits",
+  "test_accessibility.py::test_navigation_titles_are_plain_text_with_hidden_icons",
+]
