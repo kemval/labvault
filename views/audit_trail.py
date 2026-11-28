@@ -25,6 +25,7 @@ ACTION_COLORS = {
     "SAMPLE_IMPORTED": "background-color:#1a3c2a; color:#a5d6a7",
     "REPORT_EXPORTED": "background-color:#3c3a1a; color:#fff176",   # yellow — data leaving
     "LOGIN_FAILED":    "background-color:#5c1a1a; color:#ef9a9a",   # red — security
+    "ACCOUNT_LOCKED":  "background-color:#5c1a1a; color:#ef9a9a",
 }
 
 

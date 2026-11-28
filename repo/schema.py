@@ -4,6 +4,7 @@ repo/schema.py — baseline schema and versioned migrations (ADR 0003).
 
 from datetime import datetime
 
+from repo import passwords
 from repo.core import get_conn
 
 
@@ -409,12 +410,30 @@ def _m005_specifications(conn):
     conn.execute("ALTER TABLE test_results ADD COLUMN spec_version INTEGER")
 
 
+def _m006_password_security(conn):
+    """
+    Audit H6: lockout state per account, and no unsalted SHA-256 hash left
+    at rest — each is wrapped in scrypt (scrypt-sha256$...) and upgraded to
+    plain scrypt at the user's next sign-in (ADR 0013).
+    """
+    conn.execute("ALTER TABLE users ADD COLUMN failed_logins INTEGER NOT NULL DEFAULT 0 "
+                 "CHECK (failed_logins >= 0)")
+    conn.execute("ALTER TABLE users ADD COLUMN locked_until TEXT")
+    legacy = conn.execute(
+        "SELECT username, password FROM users WHERE length(password) = 64 "
+        "AND password NOT GLOB '*[^0-9a-f]*'").fetchall()
+    for username, digest in legacy:
+        conn.execute("UPDATE users SET password = ? WHERE username = ?",
+                     (passwords.wrap_legacy(digest), username))
+
+
 MIGRATIONS = [
     _m001_simulated_flag,
     _m002_sample_version,
     _m003_constraints,
     _m004_audit_trail,
     _m005_specifications,
+    _m006_password_security,
 ]
 
 

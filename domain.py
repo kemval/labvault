@@ -200,3 +200,12 @@ def evaluate_result(test_name, value, outcome, spec):
     if errors:
         return None, errors
     return determine_status(value, spec["spec_min"], spec["spec_max"]), []
+
+
+# ─────────────────────────────────────────────
+# SIGN-IN POLICY (audit H6, ADR 0013)
+# ─────────────────────────────────────────────
+
+MAX_FAILED_LOGINS = 5        # consecutive failures before the account is locked
+LOCKOUT_MINUTES = 15
+SESSION_IDLE_MINUTES = 30    # idle time after which the next action signs the user out

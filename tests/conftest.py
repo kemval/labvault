@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 import db  # noqa: E402
-from repo import (audit, core, fda_import, protocols, results, samples, schema,  # noqa: E402
+from repo import (audit, core, fda_import, passwords, protocols, results, samples, schema,  # noqa: E402
                   specifications, users)
 
 _REPO_MODULES = (core, schema, users, audit, samples, results, protocols, fda_import,
@@ -86,3 +86,10 @@ def settings(monkeypatch):
         monkeypatch.setenv("LABVAULT_ADMIN_PASSWORD", admin_password)
     _set()
     return _set
+
+
+@pytest.fixture(autouse=True)
+def cheap_password_hashing(monkeypatch):
+    """Real scrypt costs ~140 ms per hash; tests use a tiny cost. The cost is
+    stored with each hash, so verification is unaffected."""
+    monkeypatch.setattr(passwords, "COST", {"n": 2 ** 4, "r": 1, "p": 1})

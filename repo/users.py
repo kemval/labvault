@@ -2,16 +2,10 @@
 repo/users.py — accounts and authentication.
 """
 
-import hashlib
-
 from config import ConfigError
 from domain import ROLE_ADMIN, ROLE_LAB_TECH, ROLE_SYSTEM
+from repo import passwords
 from repo.core import get_conn
-
-
-def hash_pw(password: str) -> str:
-    """SHA-256 hash a password. Simple, fast, and one-way — passwords never stored raw."""
-    return hashlib.sha256(password.encode()).hexdigest()
 
 
 DEMO_USERS = [
@@ -43,12 +37,10 @@ def seed_users(demo: bool, admin_password=None):
             "SELECT 1 FROM users WHERE role != ? LIMIT 1", (ROLE_SYSTEM,)).fetchone() is not None
 
         if not demo:
+            stored = dict(conn.execute("SELECT username, password FROM users").fetchall())
             exposed = [
                 username for username, password, _ in DEMO_USERS
-                if conn.execute(
-                    "SELECT 1 FROM users WHERE username = ? AND password = ?",
-                    (username, hash_pw(password)),
-                ).fetchone()
+                if username in stored and passwords.verify(password, stored[username])
             ]
             if exposed:
                 raise ConfigError(
@@ -61,7 +53,7 @@ def seed_users(demo: bool, admin_password=None):
             return
 
         if demo:
-            rows = [(u, hash_pw(p), r) for u, p, r in DEMO_USERS]
+            rows = [(u, passwords.hash_password(p), r) for u, p, r in DEMO_USERS]
         else:
             if not admin_password:
                 raise ConfigError(
@@ -73,7 +65,7 @@ def seed_users(demo: bool, admin_password=None):
                     f"LABVAULT_ADMIN_PASSWORD must be at least "
                     f"{MIN_ADMIN_PASSWORD_LENGTH} characters."
                 )
-            rows = [("admin", hash_pw(admin_password), ROLE_ADMIN)]
+            rows = [("admin", passwords.hash_password(admin_password), ROLE_ADMIN)]
 
         conn.executemany(
             "INSERT INTO users (username, password, role) VALUES (?, ?, ?)", rows
@@ -83,20 +75,44 @@ def seed_users(demo: bool, admin_password=None):
         conn.close()
 
 
+def login_account(conn, username: str):
+    """The login account (never a system account) with its stored hash and
+    lockout state, or None. For services.sign_in, inside its transaction."""
+    row = conn.execute("SELECT * FROM users WHERE username = ? AND role != ?",
+                       (username, ROLE_SYSTEM)).fetchone()
+    return dict(row) if row else None
+
+
+def record_failure(conn, username: str, failed_logins: int, locked_until):
+    conn.execute("UPDATE users SET failed_logins = ?, locked_until = ? WHERE username = ?",
+                 (failed_logins, locked_until, username))
+
+
+def record_success(conn, username: str, new_hash=None):
+    """Clear the failure count; store an upgraded hash when given one."""
+    conn.execute("UPDATE users SET failed_logins = 0, locked_until = NULL, "
+                 "password = COALESCE(?, password) WHERE username = ?", (new_hash, username))
+
+
 def authenticate(username: str, password: str):
     """
-    Look up a user by username + hashed password.
-    Returns the full user row as a dict, or None if credentials don't match.
-    We hash the input before querying so the DB never sees a plaintext password.
+    The user (without password hash) if the credentials match, else None.
+    No lockout or audit — app code signs in through services.sign_in.
     System accounts (imports, simulator, migrations) can never log in.
     """
     conn = get_conn()
-    c = conn.cursor()
-    row = c.execute("""
-        SELECT * FROM users WHERE username = ? AND password = ? AND role != ?
-    """, (username, hash_pw(password), ROLE_SYSTEM)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    try:
+        account = login_account(conn, username)
+    finally:
+        conn.close()
+    if account is None or not passwords.verify(password, account["password"]):
+        return None
+    return public(account)
+
+
+def public(account: dict) -> dict:
+    """The account without its password hash, for the session."""
+    return {k: v for k, v in account.items() if k != "password"}
 
 
 def all_users():

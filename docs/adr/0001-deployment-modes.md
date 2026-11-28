@@ -31,4 +31,5 @@ were also re-created on every restart.
 - An existing local `labvault.db` (which contains the demo users) only starts
   in demo mode. Use a fresh database for a secure deployment.
 - Password hashing is still unsalted SHA-256 (audit H6, roadmap 4.1), so the
-  admin password must not be reused elsewhere.
+  admin password must not be reused elsewhere. *(Resolved by ADR 0013: salted
+  scrypt, lockout and idle timeout.)*

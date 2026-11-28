@@ -14,7 +14,8 @@ import db  # cache invalidation only
 import domain
 from domain import ROLE_SYSTEM, SOURCE_MANUAL, STATUS_PENDING, SYSTEM_USER
 import seed
-from repo import audit, core, fda_import, protocols, results, samples, specifications, users
+from repo import (audit, core, fda_import, passwords, protocols, results, samples,
+                  specifications, users)
 
 
 class ServiceError(Exception):
@@ -316,25 +317,56 @@ def log_event(user: str, action: str, module: str, target_id: str = "", detail: 
 
 def sign_in(username: str, password: str):
     """
-    Check credentials and audit the attempt. Returns the user dict or None.
-    A failure is credited to the account when it exists (so repeated
-    failures on one account are visible), otherwise to `system`; the
-    attempted name is kept as the target, truncated.
+    Check credentials, apply the lockout policy and audit the attempt.
+    Returns the user (without password hash) or None. The caller shows the
+    same message for every failure, so it can't reveal which accounts exist.
+
+    - MAX_FAILED_LOGINS consecutive failures lock the account for
+      LOCKOUT_MINUTES (ACCOUNT_LOCKED); attempts while locked are refused
+      without checking the password.
+    - A failure is credited to the account when it exists, otherwise to
+      `system`; the attempted name is kept as the target, truncated.
+    - A successful sign-in clears the count and upgrades an old hash.
     """
-    user = users.authenticate(username, password)
+    target = (username or "")[:64]
     with core.transaction() as conn:
-        if user:
-            audit.write_audit(conn, user["username"], "LOGIN", "Auth", user["username"],
-                              "Signed in")
+        account = users.login_account(conn, username)
+        now = core.utc_now()
+        if account is None:
+            passwords.burn_time(password)
+            audit.write_audit(conn, SYSTEM_USER, "LOGIN_FAILED", "Auth", target,
+                              "Invalid username or password")
+            user = None
+        elif account["locked_until"] and account["locked_until"] > now:
+            audit.write_audit(conn, username, "LOGIN_FAILED", "Auth", target,
+                              f"Account locked until {account['locked_until']}")
+            user = None
+        elif not passwords.verify(password, account["password"]):
+            failures = account["failed_logins"] + 1
+            if failures >= domain.MAX_FAILED_LOGINS:
+                until = core.utc_after(minutes=domain.LOCKOUT_MINUTES)
+                users.record_failure(conn, username, 0, until)
+                audit.write_audit(conn, username, "ACCOUNT_LOCKED", "Auth", target,
+                                  f"{failures} failed sign-ins; locked until {until}")
+            else:
+                users.record_failure(conn, username, failures, None)
+                audit.write_audit(conn, username, "LOGIN_FAILED", "Auth", target,
+                                  f"Invalid username or password ({failures} of "
+                                  f"{domain.MAX_FAILED_LOGINS})")
+            user = None
         else:
-            known = conn.execute(
-                "SELECT 1 FROM users WHERE username = ? AND role != ?",
-                (username, ROLE_SYSTEM)).fetchone()
-            audit.write_audit(conn, username if known else SYSTEM_USER, "LOGIN_FAILED", "Auth",
-                              (username or "")[:64], "Invalid username or password")
+            upgrade = (passwords.hash_password(password)
+                       if passwords.needs_rehash(account["password"]) else None)
+            users.record_success(conn, username, upgrade)
+            audit.write_audit(conn, username, "LOGIN", "Auth", username, "Signed in")
+            user = users.public(account)
     db.clear_audit_cache()
     return user
 
 
-def sign_out(username: str):
-    log_event(username, "LOGOUT", "Auth", username, "Signed out")
+def sign_out(username: str, idle: bool = False):
+    if idle:
+        log_event(username, "SESSION_TIMEOUT", "Auth", username,
+                  f"Signed out after {domain.SESSION_IDLE_MINUTES} minutes idle")
+    else:
+        log_event(username, "LOGOUT", "Auth", username, "Signed out")

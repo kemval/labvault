@@ -248,7 +248,7 @@ I approached this project as if I were building an internal tool for a real phar
 | **External API** | openFDA Drug Enforcement | Real-world regulatory data source maintained by the U.S. FDA |
 | **PDF Generation** | ReportLab | Professional-grade PDF output used in pharma document management |
 | **Excel Export** | openpyxl + pandas | Multi-sheet workbook generation for QA/QC report distribution |
-| **Auth** | SHA-256 hashing | Demonstration of password hashing principles (production would use bcrypt/argon2) |
+| **Auth** | Salted scrypt (stdlib), lockout, idle timeout | OWASP-recommended hashing with no compiled dependency; 5 failures lock an account for 15 min; 30 min idle signs out (ADR 0013) |
 | **Styling** | Custom CSS | Hand-crafted UI matching pharmaceutical industry aesthetics |
 
 ---
@@ -389,13 +389,13 @@ While LabVault is a prototype, it was designed with pharmaceutical regulatory aw
 
 ### What Would Be Needed for Production
 
-- [ ] Password hashing upgrade (bcrypt/argon2 instead of SHA-256)
+- [x] Password hashing upgrade (salted scrypt instead of SHA-256)
 - [ ] Electronic signatures for result approval workflows
 - [ ] Database migration to PostgreSQL for multi-user concurrency
 - [ ] TLS/HTTPS enforcement
 - [ ] Formal IQ/OQ/PQ validation documentation
 - [ ] Backup and disaster recovery procedures
-- [ ] User session timeout and lockout policies
+- [x] User session timeout and lockout policies
 
 ---
 
