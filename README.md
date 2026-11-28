@@ -395,7 +395,7 @@ While LabVault is a prototype, it was designed with pharmaceutical regulatory aw
 
 ### Prerequisites
 
-- **Python 3.11+** installed
+- **Python 3.12** (pinned in `.python-version`; 3.11 is also tested in CI)
 - **pip** package manager
 - Internet connection (for initial FDA data import)
 
@@ -411,8 +411,8 @@ python -m venv venv
 source venv/bin/activate        # macOS / Linux
 # venv\Scripts\activate         # Windows
 
-# 3. Install dependencies
-pip install -r requirements.txt
+# 3. Install the locked dependencies (exact versions, hash-checked)
+pip install --require-hashes -r requirements.txt
 
 # 4. Run the application (demo mode — see Configuration below)
 LABVAULT_DEMO_MODE=true streamlit run app.py
@@ -458,12 +458,29 @@ Cloud the app's disk is not durable, so treat that instance as disposable demo d
 ### Running Tests
 
 ```bash
-pip install -r requirements-dev.txt
+pip install --require-hashes -r requirements-dev.txt
 python -m pytest
 ruff check .
 ```
 
-CI (`.github/workflows/ci.yml`) runs ruff, the test suite on Python 3.11 and 3.12, and `pip-audit` on every pull request.
+CI (`.github/workflows/ci.yml`) runs ruff, the test suite on Python 3.11 and 3.12, a lock-file
+freshness check, and `pip-audit` on every pull request, all from the hashed lock files.
+
+### Dependencies
+
+`requirements.in` / `requirements-dev.in` hold the allowed version ranges; `requirements.txt` /
+`requirements-dev.txt` are generated universal locks (one file for macOS, Linux and Windows, Python 3.11+) with exact
+versions and hashes (see ADR 0010).
+Streamlit Cloud installs `requirements.txt`. To add or upgrade a package:
+
+```bash
+# edit requirements.in (or requirements-dev.in), then regenerate both locks:
+uv pip compile --universal --generate-hashes --python-version 3.11 requirements.in -o requirements.txt
+uv pip compile --universal --generate-hashes --python-version 3.11 requirements-dev.in -o requirements-dev.txt
+# upgrade within the ranges: add --upgrade (or --upgrade-package NAME)
+```
+
+Dependabot proposes weekly updates as pull requests, which CI tests before anything is merged.
 
 ---
 
@@ -483,7 +500,10 @@ labvault/
 ├── scripts/                # backup_db.py (backup/restore), dedupe_simulated_results.py
 ├── docs/                   # adr/ (architecture decisions), operations/ (runbooks)
 ├── tests/                  # pytest + Streamlit AppTest suite
-├── requirements.txt        # Runtime dependencies (requirements-dev.txt adds test/lint tools)
+├── requirements.in         # Allowed version ranges (edit these)
+├── requirements.txt        # Generated lock: exact versions + hashes (Streamlit Cloud installs this)
+├── requirements-dev.*      # Same for test/lint tools, constrained to the runtime lock
+├── .python-version         # Python 3.12
 ├── views/
 │   ├── __init__.py         # Package marker
 │   ├── ui.py               # Shared rendering helpers (HTML escaping, SIMULATED labels)
