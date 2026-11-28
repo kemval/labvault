@@ -1,0 +1,13 @@
+# HTTPS for LabVault (ADR 0024). Caddy obtains a Let's Encrypt certificate for
+# LABVAULT_DOMAIN (its DNS must point at this VM) and redirects HTTP to HTTPS.
+{$LABVAULT_DOMAIN} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+	# Streamlit uses a WebSocket; reverse_proxy passes it through.
+	reverse_proxy labvault:8501
+}
