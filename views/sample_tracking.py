@@ -126,8 +126,9 @@ def show():
                 new_status = st.selectbox(
                     "Status", status_options(user, s), index=0,
                     key=f"status_{s['sample_id']}",
-                    help="Allowed next steps for your role. Completing needs at least one "
-                         "recorded result; reopening is admin-only.")
+                    help="Allowed next steps for your role. Completing needs every result "
+                         "reviewed by a second person and at least one approved; "
+                         "reopening is admin-only.")
 
                 # Admins assign any lab tech; a tech can only claim an unassigned sample.
                 names = [UNASSIGNED if a is None else a
