@@ -44,6 +44,34 @@ def show_error(message: str, **context) -> str:
     return ref
 
 
+def html_block(markup: str) -> None:
+    """
+    Render an HTML snippet written as an indented, multi-line f-string. Lines are
+    unindented and empty ones dropped first: in Markdown a blank line (an
+    optional part that came out empty) ends the HTML block, and the indented
+    lines after it render as a code block showing the raw tags.
+    """
+    st.markdown("\n".join(line.strip() for line in markup.splitlines() if line.strip()),
+                unsafe_allow_html=True)
+
+
+def utc_text(stamp) -> str:
+    """'2026-11-28T07:53:25Z' -> '2026-11-28 07:53:25 UTC' (stored stamps are UTC)."""
+    return f"{stamp.replace('T', ' ').removesuffix('Z')} UTC" if stamp else ""
+
+
+def signature_text(r) -> str:
+    """
+    A result's electronic signature as people read it: meaning, signer and
+    time, plus the reason for a rejection. 21 CFR 11.50 requires all three
+    wherever a signed record is shown or printed (ADR 0028). "" if unsigned.
+    """
+    if not r.get("review"):
+        return ""
+    text = f"{r['review']} by {r['reviewed_by']}, {utc_text(r['reviewed_at'])}"
+    return f"{text}: {r['review_reason']}" if r.get("review_reason") else text
+
+
 def how_to_add_samples() -> str:
     """Where samples come from on this instance: the FDA demo import exists only
     on demo instances (ADR 0026); everywhere else, Sample Intake."""

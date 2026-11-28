@@ -10,7 +10,7 @@ Method: GAMP 5 (2nd ed.) quality risk management. For each requirement, the **im
 | **M** | 3 | 2 | 1 |
 | **L** | 3 | 3 | 2 |
 
-**Result:** 22 High, 14 Medium, 9 Low priority. Ratings are the developer's draft and must be reviewed by the lab's QA.
+**Result:** 22 High, 15 Medium, 9 Low priority. Ratings are the developer's draft and must be reviewed by the lab's QA.
 
 | ID | Requirement | Impact | Likelihood | Detection | Class | Priority | Controls |
 |---|---|---|---|---|---|---|---|
@@ -44,6 +44,7 @@ Method: GAMP 5 (2nd ed.) quality risk management. For each requirement, the **im
 | DAT-05 | Importing the same external records again never duplicates samples or results, and an import is all-or-nothing. | M | M | M | 2 | **Medium** | One write transaction per batch; results only for newly inserted samples; only-if-empty under the write lock. |
 | DAT-06 | Stored text can never act as markup in pages or as formulas in exported spreadsheets. | M | M | M | 2 | **Medium** | HTML escaping of stored values; formula-like cells exported as text; PDF values escaped. |
 | ESG-03 | Signatures are permanent; a rejection needs a reason and the result no longer counts. | H | L | M | 2 | **Medium** | Append-only signatures table (triggers); rejection reason required; rejected results excluded from completion. |
+| ESG-05 | Wherever a signed result is shown or printed (results page, Excel, PDF), its signature shows the signer, the date and time (UTC) and the meaning, with the reason for a rejection. | M | M | M | 2 | **Medium** | One signature_text helper for screen and PDF; Excel carries meaning, signer, time and reason as columns on every results sheet. |
 | LIF-02 | Concurrent edits cannot silently overwrite each other: the first save wins and the second user is told. | M | M | M | 2 | **Medium** | Optimistic version check on samples; stale saves rejected with the current values. |
 | OOS-03 | An investigation is closed by an admin who is not the analyst, with a conclusion, findings and password; once closed it is final. | H | L | M | 2 | **Medium** | Close service checks role, independence and password; database triggers keep closed investigations final. |
 | OOS-04 | OOS counts on the dashboard and in reports separate confirmed, under investigation, not investigated and invalidated results, and headline totals exclude invalidated ones. | M | M | M | 2 | **Medium** | One category rule, implemented in SQL and Python and tested to agree. |

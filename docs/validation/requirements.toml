@@ -334,6 +334,22 @@ tests = [
 ]
 
 [[requirement]]
+id = "ESG-05"
+area = "Electronic signatures"
+title = "Wherever a signed result is shown or printed (results page, Excel, PDF), its signature shows the signer, the date and time (UTC) and the meaning, with the reason for a rejection."
+regulation = ["21 CFR 11.50(a)", "21 CFR 11.50(b)", "Annex 11 §14"]
+impact = "M"
+likelihood = "M"
+detection = "M"
+controls = "One signature_text helper for screen and PDF; Excel carries meaning, signer, time and reason as columns on every results sheet."
+adrs = ["0014", "0028"]
+tests = [
+  "test_reports.py::test_excel_shows_who_signed_when_and_what_it_means",
+  "test_reports.py::test_pdf_shows_who_signed_when_and_what_it_means",
+  "test_reports.py::test_results_page_shows_when_a_result_was_signed",
+]
+
+[[requirement]]
 id = "RES-01"
 area = "Results and specifications"
 title = "The system judges each result against the current approved specification and stores which specification version it used; limits sent by a caller are ignored."

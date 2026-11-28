@@ -29,3 +29,16 @@ def test_total_samples_counts_every_sample(fresh_db, settings):
     assert metric(at, "Pending") == "7"
     assert metric(at, "Completed") == "5"
     assert not any("No samples loaded yet" in w.value for w in at.warning)
+
+
+def test_recent_sample_cards_render_as_html_not_code(fresh_db, settings):
+    # A real (not simulated) sample has no badge; the empty line it left used to
+    # end the HTML block, so Markdown showed the rest of the card as code.
+    settings(demo="true")
+    fresh_db.seed_users(demo=True)
+    add_samples(fresh_db, 1)
+    at = login(run_app(), "admin", "admin123")
+    [card] = [m.value for m in at.markdown if "S-Pending-0" in m.value]
+    lines = card.splitlines()
+    assert all(line.strip() for line in lines)                     # no blank line
+    assert not [line for line in lines if line.startswith("    ")]  # no code indent

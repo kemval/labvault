@@ -277,3 +277,15 @@ def test_opened_sample_closes_when_it_leaves_the_page(mixed, settings):
     at.radio(key="trk_show").set_value("Assigned to me").run()
     assert at.selectbox(key="trk_open").value is None
     assert not at.exception
+
+
+def test_detail_panel_of_a_real_sample_renders_as_html_not_code(lab_db, settings):
+    # A real sample has no "simulated" line; the blank line it left used to end
+    # the HTML block, so Markdown showed the closing </div> as code.
+    settings(demo="true")
+    sid = services.register_sample(BASE, "admin")
+    at = open_sample_panel(tracking_page(), sid)
+    [panel] = [m.value for m in at.markdown if "<b>Product:</b>" in m.value]
+    lines = panel.splitlines()
+    assert all(line.strip() for line in lines)                     # no blank line
+    assert not [line for line in lines if line.startswith("    ")]  # no code indent

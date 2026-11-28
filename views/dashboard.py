@@ -11,7 +11,7 @@ from db import (
     get_recent_samples, get_oos_results, get_audit_trail,
     count_samples_by_status, count_samples_by_priority, get_oos_breakdown
 )
-from views.ui import esc, how_to_add_samples, oos_summary, simulated_text, SIMULATED_LABEL, page_header
+from views.ui import esc, how_to_add_samples, html_block, oos_summary, simulated_text, SIMULATED_LABEL, page_header
 
 
 def show():
@@ -126,8 +126,9 @@ def show():
                 name = s.get("product_name", "")
                 sim_badge = (f'<span class="badge badge-sim" style="margin-left:4px">'
                              f'{SIMULATED_LABEL}</span>') if s.get("is_simulated") else ""
-                # Truncate long product names so the card doesn't overflow
-                st.markdown(f"""
+                # Truncate long product names so the card doesn't overflow.
+                # html_block() drops the blank line an empty sim_badge leaves.
+                html_block(f"""
                     <div style="background:white;border-radius:8px;padding:10px 14px;
                                 margin-bottom:8px;border-left:4px solid #1a4a8a;
                                 box-shadow:0 1px 4px rgba(0,0,0,0.06)">
@@ -144,7 +145,7 @@ def show():
                             {esc(s.get('manufacturer','—'))} · {esc(s.get('assigned_to') or 'Unassigned')}
                         </div>
                     </div>
-                """, unsafe_allow_html=True)
+                """)
         else:
             st.info(f"No samples yet. {how_to_add_samples()}")
 
