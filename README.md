@@ -197,7 +197,9 @@ I approached this project as if I were building an internal tool for a real phar
 - **New result entry**: Select one of your In Progress samples (any, for admins), choose the test, enter the value — the limits come from the specification for that sample type and test and can't be edited by the analyst
 - **Automatic OOS detection**: Results outside the specification are flagged as `Fail (OOS)`; each result records which specification version judged it
 - **No specification, no numeric result**: entry is blocked until an admin defines one
-- **Result viewer**: Filterable table with color-coded Pass/Fail styling
+- **Second-person review with e-signature**: anyone except the analyst signs each result as approved or rejected, re-entering their password; a rejection needs a reason and the result stays on record but no longer counts. Wrong signature passwords count toward the lockout
+- **Completion needs review**: a sample completes only when every result is signed and at least one is approved
+- **Result viewer**: Filterable table with color-coded Pass/Fail styling and each result's review
 - **10 pre-defined test types**: Potency, Dissolution, pH, Sterility, Particulates, Hardness, Friability, Disintegration, Water Content, Label Review
 
 ### 5. 📏 Specifications
@@ -248,7 +250,7 @@ I approached this project as if I were building an internal tool for a real phar
 | **External API** | openFDA Drug Enforcement | Real-world regulatory data source maintained by the U.S. FDA |
 | **PDF Generation** | ReportLab | Professional-grade PDF output used in pharma document management |
 | **Excel Export** | openpyxl + pandas | Multi-sheet workbook generation for QA/QC report distribution |
-| **Auth** | SHA-256 hashing | Demonstration of password hashing principles (production would use bcrypt/argon2) |
+| **Auth** | Salted scrypt (stdlib), lockout, idle timeout | OWASP-recommended hashing with no compiled dependency; 5 failures lock an account for 15 min; 30 min idle signs out (ADR 0013) |
 | **Styling** | Custom CSS | Hand-crafted UI matching pharmaceutical industry aesthetics |
 
 ---
@@ -384,18 +386,18 @@ While LabVault is a prototype, it was designed with pharmaceutical regulatory aw
 | **Contemporaneous** | UTC timestamps recorded at the moment of action |
 | **Original** | Audit trail is append-only, enforced by database triggers |
 | **Accurate** | OOS detection uses defined specification limits, not manual judgment |
-| **21 CFR Part 11** | User authentication, audit trail, role-based access (electronic records) |
+| **21 CFR Part 11** | User authentication, audit trail, role-based access, e-signatures with signer, time and meaning (§11.50, §11.200) |
 | **EU Annex 11** | Computerized systems validation awareness in design |
 
 ### What Would Be Needed for Production
 
-- [ ] Password hashing upgrade (bcrypt/argon2 instead of SHA-256)
-- [ ] Electronic signatures for result approval workflows
+- [x] Password hashing upgrade (salted scrypt instead of SHA-256)
+- [x] Electronic signatures for result approval workflows
 - [ ] Database migration to PostgreSQL for multi-user concurrency
 - [ ] TLS/HTTPS enforcement
 - [ ] Formal IQ/OQ/PQ validation documentation
 - [ ] Backup and disaster recovery procedures
-- [ ] User session timeout and lockout policies
+- [x] User session timeout and lockout policies
 
 ---
 
@@ -596,7 +598,7 @@ This project demonstrates competencies directly aligned with AbbVie's internship
 
 If I were to continue developing LabVault into a production system, the roadmap would include:
 
-1. **Electronic Signatures** — Dual approval workflow for test results (analyst + reviewer)
+1. ~~**Electronic Signatures**~~ — done: second-person review with e-signature (ADR 0014)
 2. **CAPA Module** — Corrective and Preventive Action tracking linked to OOS results
 3. **Stability Studies** — Time-based testing with shelf-life predictions
 4. **Instrument Integration** — Direct data import from HPLC, UV-Vis, pH meters

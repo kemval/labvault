@@ -6,7 +6,7 @@ without a Streamlit runtime. Caching lives in db.py; use cases in services.py.
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 # The database lives right next to the app — SQLite just needs a file path.
 DB_PATH = "labvault.db"
@@ -61,6 +61,11 @@ def run_in(conn, fn):
         return fn(conn)
     with transaction() as own:
         return fn(own)
+
+
+def utc_after(minutes: int) -> str:
+    """UTC ISO-8601 `minutes` from now, in utc_now()'s format (comparable as text)."""
+    return (datetime.now(timezone.utc) + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def utc_now() -> str:

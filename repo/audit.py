@@ -6,7 +6,7 @@ that reject UPDATE and DELETE (ADR 0008).
 from repo.core import get_conn, utc_now
 
 # Sign-in events: kept in the trail, but not "activity" on the dashboard.
-SESSION_ACTIONS = ("LOGIN", "LOGIN_FAILED", "LOGOUT")
+SESSION_ACTIONS = ("LOGIN", "LOGIN_FAILED", "LOGOUT", "SESSION_TIMEOUT", "ACCOUNT_LOCKED")
 
 
 def write_audit(conn, user: str, action: str, module: str, target_id: str = "",

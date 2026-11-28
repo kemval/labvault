@@ -5,9 +5,11 @@ Run with: streamlit run app.py
 """
 
 import importlib
+import time
 
 import streamlit as st
-from domain import ROLE_ADMIN, ROLE_LAB_TECH
+from domain import (LOCKOUT_MINUTES, MAX_FAILED_LOGINS, ROLE_ADMIN, ROLE_LAB_TECH,
+                    SESSION_IDLE_MINUTES)
 from config import ConfigError, demo_mode, admin_password
 from db import sample_exists, count_simulated, clear_user_caches
 from repo.protocols import seed_protocols
@@ -225,6 +227,9 @@ def show_login():
     # wider than the flanking empty columns — a clean way to center content.
     col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
+        if st.session_state.pop("timed_out", False):
+            st.info(f"You were signed out after {SESSION_IDLE_MINUTES} minutes without "
+                    "activity. Sign in again to continue.")
         st.markdown("#### Sign in to your account")
         username = st.text_input("Username", placeholder="e.g. admin")
         password = st.text_input("Password", type="password", placeholder="••••••••")
@@ -236,9 +241,13 @@ def show_login():
             if user:
                 st.session_state.logged_in = True
                 st.session_state.user = user
+                st.session_state.last_activity = time.time()
                 st.rerun()   # rerun triggers the main logic to show the app
             else:
-                st.error("Invalid username or password.")
+                # One message for every failure, so it can't reveal which
+                # accounts exist or are locked (ADR 0013).
+                st.error(f"Invalid username or password. After {MAX_FAILED_LOGINS} failed "
+                         f"attempts an account is locked for {LOCKOUT_MINUTES} minutes.")
 
         # Demo credentials are public by design, so they are shown only on
         # demo instances — never on a secure deployment.
@@ -330,6 +339,24 @@ def route():
 # ─────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────
+
+def end_idle_session():
+    """
+    Sign out a session idle for longer than SESSION_IDLE_MINUTES (audit H6).
+    Streamlit only reruns on interaction, so this runs on the first action
+    after the idle period, which is then refused.
+    """
+    now = time.time()
+    if now - st.session_state.get("last_activity", now) > SESSION_IDLE_MINUTES * 60:
+        services.sign_out(st.session_state.user["username"], idle=True)
+        st.session_state.logged_in = False
+        st.session_state.user = None
+        st.session_state.timed_out = True
+    st.session_state.last_activity = now
+
+
+if st.session_state.logged_in:
+    end_idle_session()
 
 if not st.session_state.logged_in:
     # Not logged in yet — show the login screen and stop here

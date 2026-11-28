@@ -34,7 +34,8 @@ def test_migration_4_adds_columns_and_triggers(lab_db):
     assert schema.schema_version(core.get_conn()) == len(schema.MIGRATIONS) >= 4
     columns = {r["name"] for r in rows("PRAGMA table_info(audit_trail)")}
     assert {"old_value", "new_value", "reason"} <= columns
-    triggers = {r["name"] for r in rows("SELECT name FROM sqlite_master WHERE type = 'trigger'")}
+    triggers = {r["name"] for r in rows("SELECT name FROM sqlite_master WHERE type = 'trigger' "
+                                        "AND tbl_name = 'audit_trail'")}
     assert triggers == {"audit_trail_no_update", "audit_trail_no_delete"}
 
 

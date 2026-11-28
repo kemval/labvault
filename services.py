@@ -14,7 +14,8 @@ import db  # cache invalidation only
 import domain
 from domain import ROLE_SYSTEM, SOURCE_MANUAL, STATUS_PENDING, SYSTEM_USER
 import seed
-from repo import audit, core, fda_import, protocols, results, samples, specifications, users
+from repo import (audit, core, fda_import, passwords, protocols, results, samples,
+                  signatures, specifications, users)
 
 
 class ServiceError(Exception):
@@ -98,10 +99,8 @@ def update_sample(sample_id: str, expected_version: int, user: str,
 def _update_sample(sample_id, expected_version, user, status, assigned_to, reason) -> bool:
     with core.transaction() as conn:
         actor = _actor(conn, user)
-        row = conn.execute("""
-            SELECT sample_id, status, assigned_to, version,
-                   (SELECT COUNT(*) FROM test_results t
-                    WHERE t.sample_id = samples.sample_id) AS result_count
+        row = conn.execute(f"""
+            SELECT sample_id, status, assigned_to, version, {samples.REVIEW_COUNTS}
             FROM samples WHERE sample_id = ?""", (sample_id,)).fetchone()
         if row is None:
             raise NotFoundError(f"Sample {sample_id} no longer exists.")
@@ -199,6 +198,55 @@ def record_result(data: dict, user: str) -> dict:
 
 def _fmt_limit(value):
     return "—" if value is None else f"{value:g}"
+
+
+# ─────────────────────────────────────────────
+# RESULT REVIEW (E-SIGNATURE)
+# ─────────────────────────────────────────────
+
+class SignatureError(ServiceError):
+    """The password check for an e-signature failed; nothing was signed."""
+
+
+def sign_result(result_id: int, user: str, password: str, meaning: str,
+                reason: str = "") -> dict:
+    """
+    Second-person review of a result (ADR 0014): the signer re-enters their
+    password and states the meaning; a rejection needs a reason. Wrong
+    passwords count toward the lockout. Returns {meaning, signed_at}.
+    """
+    reason = (reason or "").strip()
+    if meaning not in domain.REVIEW_MEANINGS:
+        raise ServiceError(f"Unknown signature meaning: {meaning}.")
+    if meaning == domain.REVIEW_REJECTED and not reason:
+        raise ServiceError("Enter a reason for rejecting the result.")
+
+    with core.transaction() as conn:
+        actor = _actor(conn, user)
+        result = signatures.result_for_review(conn, result_id)
+        if result is None:
+            raise NotFoundError(f"Result #{result_id} no longer exists.")
+        denied = domain.review_error(actor, result)
+        if denied:
+            raise PermissionDeniedError(denied)
+        signed = _check_password(conn, users.login_account(conn, user), password,
+                                 "SIGNATURE_FAILED", "Test Results", result["sample_id"])
+        if signed:
+            signed_at = signatures.insert_signature(conn, result_id, user, meaning,
+                                                    reason or None)
+            action = "RESULT_APPROVED" if meaning == domain.REVIEW_APPROVED else "RESULT_REJECTED"
+            audit.write_audit(
+                conn, user, action, "Test Results", result["sample_id"],
+                f"Result #{result_id} {result['test_name']} ({result['status']}) by "
+                f"{result['tested_by']}: {domain.SIGNATURE_MEANING_TEXT[meaning]}",
+                old_value=domain.REVIEW_AWAITING, new_value=meaning, reason=reason or None)
+    # The failed attempt is committed (count + audit) before refusing.
+    db.clear_audit_cache()
+    if not signed:
+        raise SignatureError("Signature refused: wrong password, or the account is locked "
+                             "after repeated failures. Nothing was signed.")
+    db.clear_data_caches()
+    return {"meaning": meaning, "signed_at": signed_at}
 
 
 # ─────────────────────────────────────────────
@@ -314,27 +362,66 @@ def log_event(user: str, action: str, module: str, target_id: str = "", detail: 
 # SIGN-IN
 # ─────────────────────────────────────────────
 
+def _check_password(conn, account: dict, password: str, failure_action: str,
+                    module: str, target: str) -> bool:
+    """
+    The lockout policy (ADR 0013), shared by sign-in and e-signatures: True
+    if `password` is right and the account isn't locked. Failures are counted
+    and audited as `failure_action`; MAX_FAILED_LOGINS in a row lock the
+    account for LOCKOUT_MINUTES (ACCOUNT_LOCKED). Success clears the count
+    and upgrades an outdated hash. The caller must commit either way.
+    """
+    username = account["username"]
+    if account["locked_until"] and account["locked_until"] > core.utc_now():
+        audit.write_audit(conn, username, failure_action, module, target,
+                          f"Account locked until {account['locked_until']}")
+        return False
+    if not passwords.verify(password, account["password"]):
+        failures = account["failed_logins"] + 1
+        if failures >= domain.MAX_FAILED_LOGINS:
+            until = core.utc_after(minutes=domain.LOCKOUT_MINUTES)
+            users.record_failure(conn, username, 0, until)
+            audit.write_audit(conn, username, "ACCOUNT_LOCKED", "Auth", username,
+                              f"{failures} failed password checks; locked until {until}")
+        else:
+            users.record_failure(conn, username, failures, None)
+            audit.write_audit(conn, username, failure_action, module, target,
+                              f"Wrong password ({failures} of {domain.MAX_FAILED_LOGINS})")
+        return False
+    upgrade = (passwords.hash_password(password)
+               if passwords.needs_rehash(account["password"]) else None)
+    users.record_success(conn, username, upgrade)
+    return True
+
+
 def sign_in(username: str, password: str):
     """
-    Check credentials and audit the attempt. Returns the user dict or None.
-    A failure is credited to the account when it exists (so repeated
-    failures on one account are visible), otherwise to `system`; the
-    attempted name is kept as the target, truncated.
+    Check credentials, apply the lockout policy and audit the attempt.
+    Returns the user (without password hash) or None. The caller shows the
+    same message for every failure, so it can't reveal which accounts exist.
+    A failure on an unknown account is credited to `system` (after the same
+    hashing work), with the attempted name as the target, truncated.
     """
-    user = users.authenticate(username, password)
+    target = (username or "")[:64]
     with core.transaction() as conn:
-        if user:
-            audit.write_audit(conn, user["username"], "LOGIN", "Auth", user["username"],
-                              "Signed in")
+        account = users.login_account(conn, username)
+        if account is None:
+            passwords.burn_time(password)
+            audit.write_audit(conn, SYSTEM_USER, "LOGIN_FAILED", "Auth", target,
+                              "Invalid username or password")
+            user = None
+        elif _check_password(conn, account, password, "LOGIN_FAILED", "Auth", target):
+            audit.write_audit(conn, username, "LOGIN", "Auth", username, "Signed in")
+            user = users.public(account)
         else:
-            known = conn.execute(
-                "SELECT 1 FROM users WHERE username = ? AND role != ?",
-                (username, ROLE_SYSTEM)).fetchone()
-            audit.write_audit(conn, username if known else SYSTEM_USER, "LOGIN_FAILED", "Auth",
-                              (username or "")[:64], "Invalid username or password")
+            user = None
     db.clear_audit_cache()
     return user
 
 
-def sign_out(username: str):
-    log_event(username, "LOGOUT", "Auth", username, "Signed out")
+def sign_out(username: str, idle: bool = False):
+    if idle:
+        log_event(username, "SESSION_TIMEOUT", "Auth", username,
+                  f"Signed out after {domain.SESSION_IDLE_MINUTES} minutes idle")
+    else:
+        log_event(username, "LOGOUT", "Auth", username, "Signed out")

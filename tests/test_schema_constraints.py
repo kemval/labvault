@@ -5,7 +5,7 @@ import pytest
 
 import services
 from fake_fda import record, serve
-from repo import core, schema, users
+from repo import core, passwords, schema, users
 from conftest import insert_legacy_result
 from repo.results import insert_test_result
 from repo.samples import insert_sample
@@ -96,7 +96,7 @@ def test_system_accounts_exist_and_cannot_log_in(lab_db):
     accounts = {r["username"]: r["role"] for r in rows("SELECT * FROM users")}
     assert accounts["system"] == accounts["simulator"] == "system"
     # Even if someone set a known password on one, the role blocks login.
-    execute("UPDATE users SET password = ? WHERE username = 'system'", (users.hash_pw("pw"),))
+    execute("UPDATE users SET password = ? WHERE username = 'system'", (passwords.hash_password("pw"),))
     assert users.authenticate("system", "pw") is None
     assert users.authenticate("kembly", "lab2024") is not None
 
@@ -185,7 +185,9 @@ def test_migration_keeps_every_row_and_leaves_old_timestamps_empty(v2_db):
     # + created_at (migration 3), spec_id and spec_version (migration 5): all empty
     assert {r[width:] for r in after["test_results"]} == {(None, None, None)}
     assert [r[:7] for r in after["audit_trail"]] == before["audit_trail"]   # + 3 new columns
-    assert after["users"][:len(before["users"])] == before["users"]
+    # + failed_logins and locked_until (migration 6)
+    assert [r[:4] for r in after["users"][:len(before["users"])]] == before["users"]
+    assert {r[4:] for r in after["users"]} == {(0, None)}
     assert {r[1] for r in after["users"][len(before["users"]):]} == {"system", "simulator"}
     assert rows("PRAGMA foreign_key_check") == []
     assert {r["name"] for r in rows("SELECT name FROM sqlite_master")} >= {

@@ -4,6 +4,7 @@ repo/schema.py — baseline schema and versioned migrations (ADR 0003).
 
 from datetime import datetime
 
+from repo import passwords
 from repo.core import get_conn
 
 
@@ -409,12 +410,63 @@ def _m005_specifications(conn):
     conn.execute("ALTER TABLE test_results ADD COLUMN spec_version INTEGER")
 
 
+def _m006_password_security(conn):
+    """
+    Audit H6: lockout state per account, and no unsalted SHA-256 hash left
+    at rest — each is wrapped in scrypt (scrypt-sha256$...) and upgraded to
+    plain scrypt at the user's next sign-in (ADR 0013).
+    """
+    conn.execute("ALTER TABLE users ADD COLUMN failed_logins INTEGER NOT NULL DEFAULT 0 "
+                 "CHECK (failed_logins >= 0)")
+    conn.execute("ALTER TABLE users ADD COLUMN locked_until TEXT")
+    legacy = conn.execute(
+        "SELECT username, password FROM users WHERE length(password) = 64 "
+        "AND password NOT GLOB '*[^0-9a-f]*'").fetchall()
+    for username, digest in legacy:
+        conn.execute("UPDATE users SET password = ? WHERE username = ?",
+                     (passwords.wrap_legacy(digest), username))
+
+
+def _m007_result_signatures(conn):
+    """
+    Audit 3.3: second-person review with e-signature (ADR 0014). One
+    signature per result, append-only, never by the analyst who logged it.
+    Existing results have none, so they show as awaiting review.
+    """
+    conn.execute(f"""
+        CREATE TABLE result_signatures (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            result_id INTEGER NOT NULL UNIQUE REFERENCES test_results(id),
+            signed_by TEXT NOT NULL REFERENCES users(username),
+            meaning   TEXT NOT NULL CHECK (meaning IN ('Approved', 'Rejected')),
+            reason    TEXT,
+            signed_at TEXT NOT NULL DEFAULT {_UTC_NOW},
+            CHECK (meaning = 'Approved' OR length(trim(coalesce(reason, ''))) > 0)
+        )""")
+    conn.execute("""
+        CREATE TRIGGER result_signatures_second_person
+        BEFORE INSERT ON result_signatures
+        WHEN NEW.signed_by = (SELECT tested_by FROM test_results WHERE id = NEW.result_id)
+        BEGIN
+            SELECT RAISE(ABORT, 'a result must be signed by someone other than its analyst');
+        END""")
+    for event in ("UPDATE", "DELETE"):
+        conn.execute(f"""
+            CREATE TRIGGER result_signatures_no_{event.lower()}
+            BEFORE {event} ON result_signatures
+            BEGIN
+                SELECT RAISE(ABORT, 'result_signatures is append-only');
+            END""")
+
+
 MIGRATIONS = [
     _m001_simulated_flag,
     _m002_sample_version,
     _m003_constraints,
     _m004_audit_trail,
     _m005_specifications,
+    _m006_password_security,
+    _m007_result_signatures,
 ]
 
 

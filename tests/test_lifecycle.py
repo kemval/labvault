@@ -13,9 +13,9 @@ KEMBLY = {"username": "kembly", "role": "lab_tech"}
 CARLOS = {"username": "carlos", "role": "lab_tech"}
 
 
-def sample(status=PENDING, assigned_to="kembly", result_count=1):
+def sample(status=PENDING, assigned_to="kembly", approved_count=1, unreviewed_count=0):
     return {"sample_id": "S-1", "status": status, "assigned_to": assigned_to,
-            "result_count": result_count}
+            "approved_count": approved_count, "unreviewed_count": unreviewed_count}
 
 
 # ── the rules (pure) ─────────────────────────────────────────
@@ -35,10 +35,15 @@ def test_transition_matrix(current, allowed_for_assignee, allowed_for_admin):
             allowed, key=domain.TRANSITIONS[current].index)]
 
 
-def test_completing_needs_a_recorded_result():
-    assert "at least one test result" in domain.transition_error(
-        ADMIN, sample(WIP, result_count=0), DONE)
-    assert DONE not in domain.status_options(KEMBLY, sample(WIP, result_count=0))
+@pytest.mark.parametrize("approved, unreviewed, error", [
+    (0, 0, "at least one approved"),     # nothing recorded, or only rejected results
+    (1, 1, "awaiting review"),           # one approved, one still unsigned
+    (0, 2, "awaiting review"),
+])
+def test_completing_needs_reviewed_and_approved_results(approved, unreviewed, error):
+    s = sample(WIP, approved_count=approved, unreviewed_count=unreviewed)
+    assert error in domain.transition_error(ADMIN, s, DONE)
+    assert DONE not in domain.status_options(KEMBLY, s)
 
 
 def test_other_techs_get_no_options():
@@ -122,11 +127,14 @@ def test_admin_cannot_assign_to_a_non_tech(sid):
         update(sid, 1, "admin", assigned_to="simulator")
 
 
-def test_completion_requires_a_result_then_reopen_is_admin_only(sid):
+def test_completion_requires_an_approved_result_then_reopen_is_admin_only(sid):
     update(sid, 1, "kembly", status=WIP)
-    with pytest.raises(services.PermissionDeniedError, match="at least one test result"):
+    with pytest.raises(services.PermissionDeniedError, match="at least one approved"):
         update(sid, 2, "kembly", status=DONE)
-    services.record_result({**RESULT, "sample_id": sid}, "kembly")
+    saved = services.record_result({**RESULT, "sample_id": sid}, "kembly")
+    with pytest.raises(services.PermissionDeniedError, match="awaiting review"):
+        update(sid, 2, "kembly", status=DONE)
+    services.sign_result(saved["id"], "carlos", "lab2024", "Approved")
     assert update(sid, 2, "kembly", status=DONE)
     with pytest.raises(services.PermissionDeniedError, match="Only an admin can reopen"):
         update(sid, 3, "kembly", status=WIP)

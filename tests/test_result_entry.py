@@ -3,7 +3,6 @@ import pytest
 
 import services
 from domain import evaluate_result
-from repo.specifications import seed_specifications
 from test_app_login import login, run_app, no_network  # noqa: F401
 from test_services import audit, rows
 
@@ -62,19 +61,6 @@ def test_unknown_test_is_rejected():
 
 
 # ── the service decides, using the current spec ──────────────────────────────
-
-@pytest.fixture
-def open_sample(lab_db):
-    """An In Progress Injectable assigned to kembly, with the demo specs."""
-    seed_specifications()
-    sid = services.register_sample({
-        "product_name": "Ceftriaxone Injection", "lot_number": "", "manufacturer": "M",
-        "sample_type": "Injectable", "recall_class": "Class I", "priority": "Critical",
-        "reason_for_recall": "", "collection_date": "2026-01-01", "assigned_to": "kembly",
-        "protocol_id": None, "notes": ""}, "admin")
-    services.update_sample(sid, 1, "kembly", status="In Progress", reason="start")
-    return sid
-
 
 def log(sid, test, value=None, outcome=None, user="kembly", **extra):
     return services.record_result({"sample_id": sid, "test_name": test, "result_value": value,

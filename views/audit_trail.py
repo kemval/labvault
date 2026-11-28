@@ -21,10 +21,14 @@ ACTION_COLORS = {
     "STATUS_UPDATED":  "background-color:#1a3a5c; color:#90caf9",   # blue — routine update
     "SAMPLE_ASSIGNED": "background-color:#1a3a5c; color:#90caf9",
     "RESULT_LOGGED":   "background-color:#3c1a5c; color:#ce93d8",   # purple — test result
+    "RESULT_APPROVED": "background-color:#3c1a5c; color:#ce93d8",
+    "RESULT_REJECTED": "background-color:#3c1a5c; color:#ce93d8",
     "SAMPLE_CREATED":  "background-color:#1a3c2a; color:#a5d6a7",   # green — new data
     "SAMPLE_IMPORTED": "background-color:#1a3c2a; color:#a5d6a7",
     "REPORT_EXPORTED": "background-color:#3c3a1a; color:#fff176",   # yellow — data leaving
     "LOGIN_FAILED":    "background-color:#5c1a1a; color:#ef9a9a",   # red — security
+    "SIGNATURE_FAILED": "background-color:#5c1a1a; color:#ef9a9a",
+    "ACCOUNT_LOCKED":  "background-color:#5c1a1a; color:#ef9a9a",
 }
 
 
