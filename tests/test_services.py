@@ -96,7 +96,7 @@ def test_stale_update_is_rejected_and_first_writer_wins(sample_id):
 
 
 def test_rejected_update_clears_stale_cache(sample_id):
-    assert db.get_all_samples()[0]["version"] == 1          # cached copy
+    assert db.get_sample_detail(sample_id)["version"] == 1  # cached copy
     conn = core.get_conn()                                    # another process writes
     conn.execute("UPDATE samples SET version = 2, status = 'Completed'")
     conn.commit()
@@ -104,7 +104,7 @@ def test_rejected_update_clears_stale_cache(sample_id):
 
     with pytest.raises(services.ConcurrentUpdateError):
         services.update_sample(sample_id, 1, "admin", status="Rejected", reason="test")
-    assert db.get_all_samples()[0]["version"] == 2           # reload sees the truth
+    assert db.get_sample_detail(sample_id)["version"] == 2  # reload sees the truth
 
 
 def test_noop_update_writes_nothing(sample_id):

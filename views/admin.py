@@ -12,7 +12,7 @@ from domain import (LOGIN_ROLES, OOS_INVALIDATED, MIN_PASSWORD_LENGTH, ROLE_ADMI
 from repo.core import utc_now
 from views.ui import page_header
 from config import demo_mode
-from db import get_all_users, get_all_samples, count_samples_by_status, get_oos_breakdown
+from db import get_all_users, count_samples_by_source, count_samples_by_status, get_oos_breakdown
 from repo.users import DEMO_USERS
 
 
@@ -30,17 +30,16 @@ def show():
 
     # ── SYSTEM STATS ─────────────────────────────────────────
     st.markdown("#### System Overview")
-    samples    = get_all_samples()
     status_map = count_samples_by_status()
     oos        = get_oos_breakdown()
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Samples",    len(samples))
+    c1.metric("Total Samples",    sum(status_map.values()))
     c2.metric("Completed",        status_map.get(STATUS_COMPLETED, 0))
     c3.metric("OOS Results",      oos["counted"],
               help=f"Excludes {oos[OOS_INVALIDATED]} invalidated by a laboratory error.")
     # Quick count of how many samples came from the FDA import vs. manual entry
-    c4.metric("FDA-Imported",     len([s for s in samples if s.get("source") == SOURCE_FDA]))
+    c4.metric("FDA-Imported",     count_samples_by_source().get(SOURCE_FDA, 0))
 
     st.markdown("---")
 

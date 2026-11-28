@@ -6,6 +6,7 @@ from domain import (CONCLUSION_CONFIRMED, CONCLUSION_LAB_ERROR, INVESTIGATION_OP
                     OOS_CATEGORIES, OOS_CONFIRMED, OOS_COUNTED, OOS_INVALIDATED,
                     OOS_NOT_INVESTIGATED, OOS_UNDER_INVESTIGATION, RESULT_OOS, REVIEW_REJECTED)
 from repo.core import get_conn, run_in
+from repo.samples import report_filter
 
 
 def insert_test_result(data: dict, conn=None) -> int:
@@ -39,30 +40,72 @@ REVIEW_JOIN = ("LEFT JOIN result_signatures g ON g.result_id = r.id "
                "LEFT JOIN oos_investigations i ON i.result_id = r.id")
 
 
-def results_for_sample(sample_id: str):
-    """Fetch all test results for a specific sample, newest first."""
+def find_results(status=None, limit=100, offset=0):
+    """
+    One page of results, newest first, each with its sample's product and
+    status and its review and investigation — one query, however many
+    samples there are (audit M1). Returns (rows, total).
+    """
+    where, args = ("WHERE r.status = ?", [status]) if status else ("", [])
     conn = get_conn()
-    rows = conn.execute("""
-        SELECT r.*, {REVIEW_COLUMNS} FROM test_results r {REVIEW_JOIN}
-        WHERE r.sample_id = ? ORDER BY r.id DESC
-    """.format(REVIEW_COLUMNS=REVIEW_COLUMNS, REVIEW_JOIN=REVIEW_JOIN), (sample_id,)).fetchall()
-    conn.close()
+    try:
+        total = conn.execute(f"SELECT COUNT(*) FROM test_results r {where}", args).fetchone()[0]
+        rows = conn.execute(f"""
+            SELECT r.*, s.product_name, s.status AS sample_status, {REVIEW_COLUMNS}
+            FROM test_results r JOIN samples s ON s.sample_id = r.sample_id {REVIEW_JOIN}
+            {where} ORDER BY r.id DESC LIMIT ? OFFSET ?""", [*args, limit, offset]).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows], total
+
+
+def report_results(statuses=None, priorities=None):
+    """Every result on samples matching the report filters, with review,
+    investigation and OOS category — for the exports (newest first)."""
+    where, args = report_filter(statuses, priorities, alias="s")
+    conn = get_conn()
+    try:
+        rows = conn.execute(f"""
+            SELECT r.*, {REVIEW_COLUMNS}, {OOS_CATEGORY_SQL} AS oos_category
+            FROM test_results r JOIN samples s ON s.sample_id = r.sample_id {REVIEW_JOIN}
+            {where} ORDER BY r.id DESC""", args).fetchall()
+    finally:
+        conn.close()
     return [dict(r) for r in rows]
 
 
-def all_results():
+def report_summary(statuses=None, priorities=None):
     """
-    Fetch every test result in the system — used by Reports.
-    Potentially a big query, but Reports is an explicit user action,
-    not a background poll, so the load is acceptable.
+    What a report on these filters will contain, without loading the rows:
+    sample and result counts, results per OOS category, and per month
+    (YYYY-MM of tested_at) the results tested and OOS counted.
     """
+    where, args = report_filter(statuses, priorities, alias="s")
+    counted = ", ".join(f"'{c}'" for c in OOS_COUNTED)
     conn = get_conn()
-    rows = conn.execute("""
-        SELECT r.*, {REVIEW_COLUMNS} FROM test_results r {REVIEW_JOIN}
-        ORDER BY r.id DESC
-    """.format(REVIEW_COLUMNS=REVIEW_COLUMNS, REVIEW_JOIN=REVIEW_JOIN)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    try:
+        samples = conn.execute(f"SELECT COUNT(*) FROM samples s {where}", args).fetchone()[0]
+        per_category = conn.execute(f"""
+            SELECT {OOS_CATEGORY_SQL} AS category, COUNT(*) AS n
+            FROM test_results r JOIN samples s ON s.sample_id = r.sample_id {REVIEW_JOIN}
+            {where} GROUP BY category""", args).fetchall()
+        months = conn.execute(f"""
+            SELECT substr(r.tested_at, 1, 7) AS month, COUNT(*) AS tested,
+                   SUM(({OOS_CATEGORY_SQL}) IN ({counted})) AS counted
+            FROM test_results r JOIN samples s ON s.sample_id = r.sample_id {REVIEW_JOIN}
+            {where} {'AND' if where else 'WHERE'} length(r.tested_at) >= 7
+            GROUP BY month ORDER BY month""", args).fetchall()
+    finally:
+        conn.close()
+    oos = {c: 0 for c in OOS_CATEGORIES}
+    results = 0
+    for row in per_category:
+        results += row["n"]
+        if row["category"]:
+            oos[row["category"]] = row["n"]
+    return {"samples": samples, "results": results, "oos": oos,
+            "oos_counted": sum(oos[c] for c in OOS_COUNTED),
+            "months": [(m["month"], m["tested"], m["counted"] or 0) for m in months]}
 
 
 # domain.oos_category in SQL, over test_results r {REVIEW_JOIN} (ADR 0019).

@@ -3,13 +3,13 @@ pages/test_results.py — Log and view test results, OOS flagging
 """
 
 import streamlit as st
-from domain import (OUTCOMES, QUALITATIVE_TESTS, RESULT_OOS, RESULT_PASS, RESULT_STATUSES,
+from domain import (is_admin, OUTCOMES, QUALITATIVE_TESTS, RESULT_OOS, RESULT_PASS, RESULT_STATUSES,
                     INVESTIGATION_CLOSED, REVIEW_AWAITING, SIGNATURE_MEANING_TEXT, STATUS_IN_PROGRESS,
                     TEST_TYPES, allowed_meanings, result_entry_error, review_error)
 import pandas as pd
 from datetime import date
-from db import (get_all_samples, get_all_specifications, get_results_awaiting_review,
-                get_results_for_sample)
+from db import (find_results, get_all_specifications, get_loggable_samples,
+                get_results_awaiting_review, sample_exists)
 import services
 from views.ui import simulated_text, SIMULATED_LABEL, page_header
 
@@ -18,13 +18,17 @@ def _fmt(value):
     return "—" if value is None else f"{value:g}"
 
 
-def _log_result_tab(user, samples):
-    # Only In Progress samples assigned to this user (any, for admins);
-    # services.record_result enforces the same rule (ADR 0011).
+RESULTS_PAGE_SIZE = 100
+
+
+def _log_result_tab(user):
+    # Only In Progress samples assigned to this user (any, for admins),
+    # selected in SQL; services.record_result enforces the same rule (ADR 0011).
+    candidates = get_loggable_samples(None if is_admin(user) else user["username"])
     open_samples = {
         f"{s['sample_id']} — {s['product_name'][:50]}"
         + (f" ({SIMULATED_LABEL})" if s.get("is_simulated") else ""): s
-        for s in samples if result_entry_error(user, s) is None}
+        for s in candidates if result_entry_error(user, s) is None}
     if not open_samples:
         st.info("No samples are open for results. Results can be logged on "
                 "**In Progress** samples assigned to you — start one in Sample Tracking.")
@@ -161,76 +165,74 @@ def _review_tab(user):
         st.rerun()
 
 
+def _all_results_tab():
+    """Every result, newest first, one page at a time from a single JOIN query (audit M1)."""
+    st.markdown("#### All Test Results")
+    c1, c2 = st.columns([2, 1])
+    filter_status = c1.selectbox("Filter", ["All", *RESULT_STATUSES], key="results_filter",
+                                 on_change=lambda: st.session_state.update(results_page=1))
+    status = None if filter_status == "All" else filter_status
+    total = find_results(status, limit=0)[1]
+    if not total:
+        st.info("No results found.")
+        return
+    pages = -(-total // RESULTS_PAGE_SIZE)
+    page = min(st.session_state.get("results_page", 1), pages)
+    st.session_state["results_page"] = page
+    if pages > 1:
+        c2.number_input(f"Page (of {pages:,})", min_value=1, max_value=pages, step=1,
+                        key="results_page")
+    found, total = find_results(status, limit=RESULTS_PAGE_SIZE,
+                                offset=(page - 1) * RESULTS_PAGE_SIZE)
+    first = (page - 1) * RESULTS_PAGE_SIZE + 1
+    st.caption(f"{total:,} result(s) · showing {first:,}–{first + len(found) - 1:,}")
+
+    for r in found:
+        r["review_text"] = _review_text(r)
+        r["product_name"] = r["product_name"][:50]
+    df = pd.DataFrame(found)[[
+        "sample_id", "product_name", "test_name",
+        "result_value", "result_unit", "spec_min", "spec_max",
+        "status", "review_text", "spec_version", "tested_by", "tested_at", "is_simulated"
+    ]]
+    df["is_simulated"] = df["is_simulated"].map(simulated_text)
+    # Which specification version judged the result; older results keep
+    # the limits typed at the time (ADR 0012).
+    df["spec_version"] = df["spec_version"].map(
+        lambda v: "as recorded" if pd.isna(v) else f"v{int(v)}")
+    df.columns = [
+        "Sample ID", "Product", "Test",
+        "Result", "Unit", "Spec Min", "Spec Max",
+        "Status", "Review", "Spec", "Tested By", "Date", "Simulated"
+    ]
+
+    def color_status(val):
+        if val == RESULT_OOS:
+            return "background-color: #fce4ec; color: #c62828; font-weight: 600"
+        elif val == RESULT_PASS:
+            return "background-color: #e8f5e9; color: #2e7d32; font-weight: 600"
+        return ""
+
+    styled = df.style.map(color_status, subset=["Status"])
+    st.dataframe(styled, width="stretch", hide_index=True)
+
+
 def show():
     page_header("📋 Test Results", "Log results, review and sign them, and see Out-of-Spec findings")
 
-    user    = st.session_state.user
-    samples = get_all_samples()
-
-    if not samples:
+    user = st.session_state.user
+    if not sample_exists():
         st.info("No samples in the system yet. Import FDA data or register a sample first.")
         return
 
     tab_log, tab_review, tab_view = st.tabs(
         ["📝 Log New Result", "✍️ Review", "📊 View All Results"])
-
-    # ── LOG NEW RESULT ────────────────────────────────────────
     with tab_log:
-        _log_result_tab(user, samples)
-
-    # ── REVIEW (E-SIGNATURE) ──────────────────────────────────
+        _log_result_tab(user)
     with tab_review:
         _review_tab(user)
-
-    # ── VIEW ALL RESULTS ──────────────────────────────────────
     with tab_view:
-        st.markdown("#### All Test Results")
-
-        filter_status = st.selectbox("Filter", ["All", *RESULT_STATUSES])
-
-        # Gather all results across all samples
-        all_results = []
-        for s in samples:
-            for r in get_results_for_sample(s["sample_id"]):
-                r["product_name"] = s["product_name"][:50]
-                r["sample_status"] = s["status"]
-                all_results.append(r)
-
-        if filter_status != "All":
-            all_results = [r for r in all_results if r["status"] == filter_status]
-
-        if not all_results:
-            st.info("No results found.")
-            return
-
-        for r in all_results:
-            r["review_text"] = _review_text(r)
-        df = pd.DataFrame(all_results)[[
-            "sample_id", "product_name", "test_name",
-            "result_value", "result_unit", "spec_min", "spec_max",
-            "status", "review_text", "spec_version", "tested_by", "tested_at", "is_simulated"
-        ]]
-        df["is_simulated"] = df["is_simulated"].map(simulated_text)
-        # Which specification version judged the result; older results keep
-        # the limits typed at the time (ADR 0012).
-        df["spec_version"] = df["spec_version"].map(
-            lambda v: "as recorded" if pd.isna(v) else f"v{int(v)}")
-        df.columns = [
-            "Sample ID", "Product", "Test",
-            "Result", "Unit", "Spec Min", "Spec Max",
-            "Status", "Review", "Spec", "Tested By", "Date", "Simulated"
-        ]
-
-        # Color OOS rows
-        def color_status(val):
-            if val == RESULT_OOS:
-                return "background-color: #fce4ec; color: #c62828; font-weight: 600"
-            elif val == RESULT_PASS:
-                return "background-color: #e8f5e9; color: #2e7d32; font-weight: 600"
-            return ""
-
-        styled = df.style.map(color_status, subset=["Status"])
-        st.dataframe(styled, use_container_width=True, hide_index=True)
+        _all_results_tab()
 
 
 if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
