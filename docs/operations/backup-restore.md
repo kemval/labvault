@@ -1,5 +1,9 @@
 # Runbook — Database backup & restore (interim)
 
+> **Production now uses continuous replication:** see
+> [durable-storage.md](durable-storage.md) (ADR 0023). These file backups remain useful
+> as a second line, and for local or self-hosted installs without Litestream.
+
 Addresses audit finding C2 until the database moves to durable managed storage
 (roadmap 5.1). Tool: `scripts/backup_db.py`. It uses only the standard
 library; run it with the app's Python.

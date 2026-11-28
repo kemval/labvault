@@ -3,15 +3,18 @@ pages/admin.py — Admin panel: user list and system info
 Only accessible to users with role='admin'. Lab techs get a hard stop at the door.
 """
 
+import os
+
 import pandas as pd
 import streamlit as st
 
 import services
 from domain import (LOGIN_ROLES, OOS_INVALIDATED, MIN_PASSWORD_LENGTH, ROLE_ADMIN, ROLE_LAB_TECH, ROLE_SYSTEM,
                     SOURCE_FDA, STATUS_COMPLETED)
+from repo import core
 from repo.core import utc_now
 from views.ui import page_header
-from config import demo_mode
+from config import backup_replica, demo_mode
 from db import get_all_users, count_samples_by_source, count_samples_by_status, get_oos_breakdown
 from repo.users import DEMO_USERS
 
@@ -40,6 +43,7 @@ def show():
               help=f"Excludes {oos[OOS_INVALIDATED]} invalidated by a laboratory error.")
     # Quick count of how many samples came from the FDA import vs. manual entry
     c4.metric("FDA-Imported",     count_samples_by_source().get(SOURCE_FDA, 0))
+    _storage_status()
 
     st.markdown("---")
 
@@ -59,6 +63,20 @@ def show():
         st.code("\n".join(
             f"{label[r]:<9} →  username: {u:<8} password: {p}" for u, p, r in DEMO_USERS
         ))
+
+
+def _storage_status():
+    """Where the data lives and whether it is continuously backed up (ADR 0023)."""
+    replica = backup_replica()
+    where = f"Database file: `{os.path.abspath(core.DB_PATH)}`"
+    if replica:
+        st.caption(f"{where} · Continuous backup (Litestream) to `{replica}`")
+    elif demo_mode():
+        st.caption(f"{where} · No continuous backup: demo data, rebuilt on restart.")
+    else:
+        st.warning(f"{where}. **No continuous backup is configured.** Records can be lost "
+                   "if this disk is lost. Run LabVault with `deploy/start.sh` "
+                   "(see docs/operations/durable-storage.md).")
 
 
 ROLE_LABELS = {ROLE_ADMIN: "Admin", ROLE_LAB_TECH: "Lab Tech",

@@ -474,6 +474,8 @@ Settings are read from environment variables or `.streamlit/secrets.toml`.
 |---|---|
 | `LABVAULT_DEMO_MODE=true` | Demo mode: seeds the public demo accounts below and shows their credentials on the login screen |
 | `LABVAULT_ADMIN_PASSWORD` | Secure mode (the default): password for the initial `admin` account, at least 12 characters. Used only when no users exist yet |
+| `LABVAULT_DB_PATH` | Environment only. The SQLite database file (default `./labvault.db`); in production, a file on a persistent volume |
+| `LITESTREAM_REPLICA_URL` | Environment only. The object-storage replica that `deploy/start.sh` streams the database to (ADR 0023) |
 
 With neither setting, the app stops with a configuration error and does not create any accounts.
 In secure mode it also refuses to start on a database that still contains demo passwords.
@@ -491,11 +493,18 @@ their password can only be recovered by editing the database.
 | Lab Technician | `carlos` | `lab2024` |
 | Lab Technician | `maria` | `lab2024` |
 
-### Backups
+### Durable storage and backups
 
-Use `scripts/backup_db.py` for verified online backups and safe restores. See the
-[backup & restore runbook](docs/operations/backup-restore.md). On Streamlit Community
-Cloud the app's disk is not durable, so treat that instance as disposable demo data.
+**Production:** run `deploy/start.sh` on a host with a persistent disk. Litestream streams
+every committed change to S3-compatible storage about once a second, keeps 30 days of
+point-in-time history, and restores automatically onto a new, empty disk. Setup, restore
+and the quarterly restore drill (`python scripts/backup_db.py check <restored file>`) are
+in the [durable storage runbook](docs/operations/durable-storage.md) (ADR 0023). The Admin
+page shows whether continuous backup is configured.
+
+`scripts/backup_db.py` also makes verified online file backups
+([runbook](docs/operations/backup-restore.md)). On Streamlit Community Cloud the disk is not
+durable, so that instance is disposable demo data.
 
 ### Running Tests
 
@@ -576,6 +585,7 @@ labvault/
 ├── repo/                   # Streamlit-free persistence: SQLite connection, schema +
 │   │                       #   migrations, users, samples, results, protocols, audit, FDA batch
 │   └── ...
+├── deploy/                 # start.sh + litestream.yml: production start with continuous backup
 ├── scripts/                # backup_db.py, benchmark.py, audit_deps.py, dedupe_simulated_results.py
 ├── docs/                   # adr/ (architecture decisions), operations/ (runbooks)
 ├── tests/                  # pytest + Streamlit AppTest suite
