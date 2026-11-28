@@ -31,4 +31,4 @@ Moving to Postgres would have meant:
 - **One instance only:** SQLite has a single writer, and Litestream needs a single writer per replica path. Horizontal scaling would need Postgres. Revisit if several sites or heavy concurrency appear.
 - **Leaving Streamlit Cloud for production:** production needs a host with a persistent disk (packaged in 5.2). The demo can stay on Streamlit Cloud.
 - **Loss window:** about 1 s of commits if the host is destroyed between syncs. A clean shutdown makes a final sync.
-- **Validation gap at acceptance:** the start-up logic was tested with a stand-in `litestream` binary. Replication itself must be proved with the real binary and bucket in the first drill. Running a downloaded binary was not permitted in the development session.
+- **Validation:** the start-up logic was first tested with a stand-in `litestream` binary. Since ADR 0024, `deploy/smoke_test.sh` proves replication and restore with the real binary on every pull request: the data survives destroying the container and its volume.

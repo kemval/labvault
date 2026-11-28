@@ -1,0 +1,20 @@
+# Never copy local data or secrets into the image.
+labvault.db
+labvault.db-*
+labvault.db.backup-*
+labvault.db.replaced-*
+*.db
+.streamlit/secrets.toml
+deploy/.env
+.env
+# Not needed at run time.
+.git
+.github
+.venv
+venv
+tests
+docs
+__pycache__
+*.pyc
+.ruff_cache
+.pytest_cache

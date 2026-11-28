@@ -37,3 +37,6 @@ labvault.db-*
 # ─── OS ───────────────────────────────────────
 Thumbs.db
 Desktop.ini
+
+# ─── Deployment secrets ───────────────────────
+deploy/.env

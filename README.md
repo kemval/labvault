@@ -493,6 +493,21 @@ their password can only be recovered by editing the database.
 | Lab Technician | `carlos` | `lab2024` |
 | Lab Technician | `maria` | `lab2024` |
 
+### Production deployment
+
+Production runs as one Docker image (the app, Litestream and a health check) behind Caddy
+for automatic HTTPS, on one VM with Docker Compose. A free setup is possible: a Google Cloud
+e2-micro VM and a Cloudflare R2 bucket. Every pull request builds the image and runs
+`deploy/smoke_test.sh`. It starts the container, writes data, destroys the container and
+its volume, and checks that a new container restores the data. Merges to `main` publish
+`ghcr.io/kemval/labvault`, and deploy once a server is configured; to redeploy by hand, run
+`gh workflow run Container`. Server setup, CI secrets and rollback are in the
+[deployment runbook](docs/operations/deployment.md) (ADR 0024).
+
+```bash
+docker build -t labvault:dev . && sh deploy/smoke_test.sh labvault:dev
+```
+
 ### Durable storage and backups
 
 **Production:** run `deploy/start.sh` on a host with a persistent disk. Litestream streams
@@ -585,7 +600,8 @@ labvault/
 ├── repo/                   # Streamlit-free persistence: SQLite connection, schema +
 │   │                       #   migrations, users, samples, results, protocols, audit, FDA batch
 │   └── ...
-├── deploy/                 # start.sh + litestream.yml: production start with continuous backup
+├── Dockerfile              # Production image: app + Litestream + health check
+├── deploy/                 # start.sh, litestream.yml, compose.yaml + Caddyfile, smoke_test.sh
 ├── scripts/                # backup_db.py, benchmark.py, audit_deps.py, dedupe_simulated_results.py
 ├── docs/                   # adr/ (architecture decisions), operations/ (runbooks)
 ├── tests/                  # pytest + Streamlit AppTest suite

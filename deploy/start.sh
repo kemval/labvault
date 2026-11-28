@@ -10,6 +10,8 @@ set -eu
 
 : "${LABVAULT_DB_PATH:?set LABVAULT_DB_PATH to the database on the persistent volume}"
 : "${LITESTREAM_REPLICA_URL:?set LITESTREAM_REPLICA_URL (s3://bucket/path); refusing to run without a backup replica}"
+case "$LABVAULT_DB_PATH" in /*) ;; *) LABVAULT_DB_PATH="$PWD/$LABVAULT_DB_PATH" ;; esac
+export LABVAULT_DB_PATH
 export LITESTREAM_S3_ENDPOINT="${LITESTREAM_S3_ENDPOINT:-}"
 export LITESTREAM_S3_REGION="${LITESTREAM_S3_REGION:-us-east-1}"
 
@@ -23,5 +25,10 @@ mkdir -p "$(dirname "$LABVAULT_DB_PATH")"
 # No replica yet (first ever start): continue with an empty database.
 litestream restore -config "$CONFIG" -if-db-not-exists -if-replica-exists "$LABVAULT_DB_PATH"
 
+# Create or migrate the schema now (ADR 0003), so Litestream replicates a real
+# database from the start and the health check passes before the first visitor.
+cd "$HERE/.."
+"${PYTHON:-python}" -c "from repo.schema import init_db; init_db()"
+
 exec litestream replicate -config "$CONFIG" \
-  -exec "streamlit run $HERE/../app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"
+  -exec "streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"

@@ -1,0 +1,36 @@
+# Production on one VM (roadmap 5.2, ADR 0024): LabVault behind Caddy, which
+# gets and renews the HTTPS certificate automatically.
+#
+#   cp deploy/.env.example deploy/.env    # fill in; never commit it
+#   docker compose -f deploy/compose.yaml up -d
+#
+# The database lives in the labvault-data volume and is streamed to object
+# storage by Litestream (ADR 0023). Run exactly one labvault container.
+services:
+  labvault:
+    image: ${LABVAULT_IMAGE:-ghcr.io/kemval/labvault:latest}
+    env_file: ${LABVAULT_ENV_FILE:-.env}
+    environment:
+      LABVAULT_DB_PATH: /data/labvault.db
+    volumes:
+      - labvault-data:/data
+    restart: unless-stopped
+    # Give Litestream time for its final sync when the container stops.
+    stop_grace_period: 40s
+    expose: ["8501"]
+
+  caddy:
+    image: caddy:2
+    env_file: ${LABVAULT_ENV_FILE:-.env}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [labvault]
+    restart: unless-stopped
+
+volumes:
+  labvault-data:
+  caddy-data:
+  caddy-config:

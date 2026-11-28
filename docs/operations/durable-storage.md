@@ -2,13 +2,13 @@
 
 This runbook implements audit finding C2 and roadmap 5.1 (ADR 0023). LabVault keeps its data in one SQLite file on a **persistent volume**. [Litestream](https://litestream.io) (0.5.x) streams every committed change to **S3-compatible object storage** about once a second. Up to 30 days of history can be restored to a chosen point in time.
 
-The public demo on Streamlit Community Cloud does not use this, because its data is simulated and is rebuilt on restart. Packaging the app as a container for a host (5.2) and monitoring (5.3) are separate roadmap items.
+The public demo on Streamlit Community Cloud does not use this, because its data is simulated and is rebuilt on restart. The production container and how to deploy it are in [deployment.md](deployment.md) (ADR 0024). Monitoring is roadmap 5.3.
 
 ## What you need
 | | Example |
 |---|---|
 | A host with a persistent disk, running **one** app instance | a VM, Fly.io with a volume, Railway with a volume |
-| The `litestream` binary on that host | from the [release page](https://github.com/benbjohnson/litestream/releases); check its SHA-256 against `checksums.txt` |
+| The `litestream` binary | already in the production image, checksum-verified (ADR 0024); for a manual install, use the [release page](https://github.com/benbjohnson/litestream/releases) and check `checksums.txt` |
 | A bucket in a **different** provider or region from the host | AWS S3, Cloudflare R2, Backblaze B2 |
 | Bucket credentials that can only read and write that bucket | an access key |
 

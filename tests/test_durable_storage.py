@@ -67,7 +67,7 @@ def fake_litestream(tmp_path):
     script.chmod(0o755)
 
     def run(**env):
-        full = {"PATH": f"{bin_dir}:/usr/bin:/bin", **env}
+        full = {"PATH": f"{bin_dir}:/usr/bin:/bin", "PYTHON": sys.executable, **env}
         out = subprocess.run(["sh", START], env=full, capture_output=True, text=True)
         lines = calls.read_text().splitlines() if calls.exists() else []
         return out, lines
@@ -91,8 +91,11 @@ def test_start_restores_if_needed_then_runs_the_app_under_litestream(fake_litest
     assert restore.startswith("restore -config ")
     assert restore.endswith(f"-if-db-not-exists -if-replica-exists {db}")
     assert replicate.startswith("replicate -config ") and "-exec streamlit run" in replicate
-    assert "app.py --server.port 8080" in replicate
+    assert "streamlit run app.py --server.port 8080" in replicate
     assert os.path.isdir(tmp_path / "data")                      # volume directory created
+    # The schema exists before Litestream and the app start (health check, ADR 0024).
+    assert sqlite3.connect(db).execute("PRAGMA user_version").fetchone()[0] == \
+        len(schema.MIGRATIONS)
 
 
 def test_litestream_config_uses_the_environment_and_keeps_30_days():
