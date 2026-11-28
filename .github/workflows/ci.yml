@@ -61,15 +61,5 @@ jobs:
           git diff --exit-code -- requirements.txt requirements-dev.txt \
             || { echo "::error::Lock files are out of date — regenerate them (see requirements.in)"; exit 1; }
 
-  dependency-audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: requirements-dev.txt
-      - run: pip install --require-hashes -r requirements-dev.txt
-      # Audits the exact runtime versions the app deploys with.
-      - run: pip-audit -r requirements.txt --require-hashes --progress-spinner off
+  # The dependency audit has its own workflow (dependency-audit.yml), which
+  # also runs weekly.
