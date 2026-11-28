@@ -11,7 +11,7 @@ from datetime import date
 from db import (find_results, get_all_specifications, get_loggable_samples,
                 get_results_awaiting_review, sample_exists)
 import services
-from views.ui import how_to_add_samples, simulated_text, SIMULATED_LABEL, page_header
+from views.ui import how_to_add_samples, signature_text, simulated_text, SIMULATED_LABEL, page_header
 
 
 def _fmt(value):
@@ -104,8 +104,7 @@ def _review_text(r):
         if r["status"] == RESULT_OOS and r.get("investigation_status") != INVESTIGATION_CLOSED:
             return f"Awaiting investigation #{r['investigation_id']}"
         return REVIEW_AWAITING
-    text = f"{r['review']} by {r['reviewed_by']}"
-    return f"{text}: {r['review_reason']}" if r.get("review_reason") else text
+    return signature_text(r)
 
 
 def _review_tab(user):

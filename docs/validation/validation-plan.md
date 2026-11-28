@@ -20,10 +20,10 @@
 
 | Deliverable | Where |
 |---|---|
-| Requirements specification, 45 requirements tied to 21 CFR 11, 21 CFR 211, EU GMP Annex 11 and ALCOA+ | [requirements-specification.md](requirements-specification.md) |
+| Requirements specification, 46 requirements tied to 21 CFR 11, 21 CFR 211, EU GMP Annex 11 and ALCOA+ | [requirements-specification.md](requirements-specification.md) |
 | Risk assessment (GAMP 5 method) | [risk-assessment.md](risk-assessment.md) |
 | Traceability, requirement → ADR → automated test; CI fails if any requirement is untraced | [traceability-matrix.md](traceability-matrix.md) |
-| Design decisions | `docs/adr/` (ADR 0001–0027) |
+| Design decisions | `docs/adr/` (ADR 0001–0028) |
 | Automated test suite, run on every change on Python 3.11 and 3.12 | `tests/`, `.github/workflows/ci.yml` |
 | Installation and recovery evidence: container build, backup, destroy, restore and verify | `deploy/smoke_test.sh`, `.github/workflows/container.yml` |
 | Operations runbooks: deployment, durable storage and restore drill, monitoring, dependency policy | `docs/operations/` |
@@ -48,7 +48,9 @@
 10. **Periodic review,** for example yearly: the dependency audit, access review, restore drill results and the deviations log.
 
 ## 4. Known gaps to resolve or accept before go-live
-- **Signatures are not shown on reports.** The Excel and PDF exports list samples and results but not who signed each result, when, or the meaning of the signature. 21 CFR 11.50 requires printed signed records to show all three.
+
+Resolved: signatures are now shown on reports and on the results page (ESG-05, ADR 0028). They were missing when this plan was first drafted.
+
 - **Single instance.** SQLite with one writer (ADR 0023). A deployment must never run two app containers against the same replica.
 - **No production deployment exists yet.** The hosting decision is open, so IQ cannot start.
 - **Time source.** Timestamps come from the server clock in UTC (DAT-03). The host's time synchronisation must be qualified in IQ.

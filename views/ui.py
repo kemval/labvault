@@ -44,6 +44,23 @@ def show_error(message: str, **context) -> str:
     return ref
 
 
+def utc_text(stamp) -> str:
+    """'2026-11-28T07:53:25Z' -> '2026-11-28 07:53:25 UTC' (stored stamps are UTC)."""
+    return f"{stamp.replace('T', ' ').removesuffix('Z')} UTC" if stamp else ""
+
+
+def signature_text(r) -> str:
+    """
+    A result's electronic signature as people read it: meaning, signer and
+    time, plus the reason for a rejection. 21 CFR 11.50 requires all three
+    wherever a signed record is shown or printed (ADR 0028). "" if unsigned.
+    """
+    if not r.get("review"):
+        return ""
+    text = f"{r['review']} by {r['reviewed_by']}, {utc_text(r['reviewed_at'])}"
+    return f"{text}: {r['review_reason']}" if r.get("review_reason") else text
+
+
 def how_to_add_samples() -> str:
     """Where samples come from on this instance: the FDA demo import exists only
     on demo instances (ADR 0026); everywhere else, Sample Intake."""

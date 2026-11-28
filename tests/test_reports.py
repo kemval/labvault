@@ -198,3 +198,41 @@ def test_reports_page_summarises_the_selection(every_kind, settings):
     metrics = {m.label: m.value for m in at.metric}
     assert (metrics["OOS Results (counted)"], metrics["OOS Invalidated"]) == ("3", "1")
     assert at.get("vega_lite_chart")                              # the monthly trend
+
+
+# ── signatures on printed records (21 CFR 11.50, ADR 0028) ──────────────────
+
+def signed_at(result_id):
+    [r] = rows(f"SELECT signed_at FROM result_signatures WHERE result_id = {result_id}")
+    return r["signed_at"].replace("T", " ").removesuffix("Z") + " UTC"
+
+
+def test_excel_shows_who_signed_when_and_what_it_means(every_kind):
+    services.sign_result(every_kind["confirmed"], "admin", "admin123", "Approved")
+    found = results.report_results()
+    wb = openpyxl.load_workbook(io.BytesIO(build_excel(rows("SELECT * FROM samples"), found)))
+    for sheet in ("Test Results", "OOS Results"):
+        ws = wb[sheet]
+        header = [c.value for c in ws[1]]
+        assert {"Signature", "Signed By", "Signed At (UTC)", "Signature Reason"} <= set(header)
+        signed = {r[header.index("Signature")]: r for r in ws.iter_rows(min_row=2, values_only=True)
+                  if r[header.index("Signature")]}
+        approved, rejected = signed["Approved"], signed["Rejected"]
+        assert approved[header.index("Signed By")] == "admin"
+        assert approved[header.index("Signed At (UTC)")]
+        assert rejected[header.index("Signature Reason")] == "Lab error"
+
+
+def test_pdf_shows_who_signed_when_and_what_it_means(every_kind):
+    services.sign_result(every_kind["confirmed"], "admin", "admin123", "Approved")
+    text = pdf_text(build_pdf(rows("SELECT * FROM samples"), results.report_results()))
+    assert f"Approved by admin, {signed_at(every_kind['confirmed'])}" in text
+    assert f"Rejected by admin, {signed_at(every_kind['lab_error'])}: Lab error" in text
+    assert "Not signed" in text                                   # the open and legacy OOS
+
+
+def test_results_page_shows_when_a_result_was_signed(every_kind, settings):
+    settings(demo="true")
+    at = go(login(run_app(), "admin", "admin123"), "Test Results")
+    shown = " ".join(str(df.value.to_dict()) for df in at.dataframe)
+    assert f"Rejected by admin, {signed_at(every_kind['lab_error'])}: Lab error" in shown

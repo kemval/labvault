@@ -14,7 +14,7 @@ from db import get_report_rows, get_report_summary, get_schema_version, sample_e
 from domain import (OOS_CATEGORIES, OOS_COUNTED, OOS_INVALIDATED, PRIORITIES, RESULT_OOS,
                     SAMPLE_STATUSES, oos_category, spec_text)
 from repo.core import utc_now
-from views.ui import page_header, show_error, simulated_text
+from views.ui import page_header, show_error, signature_text, simulated_text, utc_text
 
 
 def report_meta(samples, results, user="—", statuses=SAMPLE_STATUSES, priorities=PRIORITIES,
@@ -30,7 +30,7 @@ def report_meta(samples, results, user="—", statuses=SAMPLE_STATUSES, prioriti
         if r.get("oos_category"):
             breakdown[r["oos_category"]] += 1
     return {
-        "generated_at": utc_now() + " UTC",
+        "generated_at": utc_text(utc_now()),
         "generated_by": user,
         "statuses": ", ".join(statuses) if len(statuses) < len(SAMPLE_STATUSES) else "All",
         "priorities": ", ".join(priorities) if len(priorities) < len(PRIORITIES) else "All",
@@ -74,6 +74,12 @@ def _info_rows(meta):
     ]
 
 
+# A signed result's signature: meaning, signer, time (UTC) and reason, on every
+# sheet that lists results (21 CFR 11.50, ADR 0028).
+SIGNATURE_COLUMNS = ["review", "reviewed_by", "reviewed_at", "review_reason"]
+SIGNATURE_HEADERS = ["Signature", "Signed By", "Signed At (UTC)", "Signature Reason"]
+
+
 def build_excel(samples, results, meta=None):
     results = with_oos_category(results)
     meta = meta or report_meta(samples, results)
@@ -101,12 +107,12 @@ def build_excel(samples, results, meta=None):
         if results:
             df_results = _frame(results, [
                 "sample_id", "test_name", "result_value", "result_unit",
-                "spec_min", "spec_max", "status", "oos_category", "review", "reviewed_by",
+                "spec_min", "spec_max", "status", "oos_category", *SIGNATURE_COLUMNS,
                 "conclusion", "tested_by", "tested_at", "notes"
             ])
             df_results.columns = [
                 "Sample ID", "Test Name", "Result Value", "Unit",
-                "Spec Min", "Spec Max", "Status", "OOS Status", "Review", "Reviewed By",
+                "Spec Min", "Spec Max", "Status", "OOS Status", *SIGNATURE_HEADERS,
                 "Investigation Conclusion", "Tested By", "Test Date", "Notes", "Simulated"
             ]
             df_results.to_excel(writer, sheet_name="Test Results", index=False)
@@ -116,13 +122,13 @@ def build_excel(samples, results, meta=None):
         if oos:
             df_oos = _frame(oos, [
                 "sample_id", "test_name", "result_value", "result_unit",
-                "spec_min", "spec_max", "oos_category", "conclusion", "tested_by",
-                "tested_at", "notes"
+                "spec_min", "spec_max", "oos_category", "conclusion", *SIGNATURE_COLUMNS,
+                "tested_by", "tested_at", "notes"
             ])
             df_oos.columns = [
                 "Sample ID", "Test Name", "Result", "Unit", "Spec Min", "Spec Max",
-                "OOS Status", "Investigation Conclusion", "Tested By", "Date", "Notes",
-                "Simulated"
+                "OOS Status", "Investigation Conclusion", *SIGNATURE_HEADERS,
+                "Tested By", "Date", "Notes", "Simulated"
             ]
             df_oos.to_excel(writer, sheet_name="OOS Results", index=False)
 
@@ -182,6 +188,7 @@ def build_pdf(samples, results, meta=None):
     meta = meta or report_meta(samples, results)
     output = io.BytesIO()
     doc = SimpleDocTemplate(output, pagesize=letter, topMargin=40, bottomMargin=50,
+                            leftMargin=40, rightMargin=40,
                             title="LabVault — Quality Control Report",
                             author=meta["generated_by"])
     styles = getSampleStyleSheet()
@@ -234,13 +241,15 @@ def build_pdf(samples, results, meta=None):
         story.append(p(f"{meta['oos_counted']} counted; {meta['oos'][OOS_INVALIDATED]} "
                        "invalidated by a laboratory error are listed but not counted."))
         story.append(Spacer(1, 6))
-        rows = [["Sample ID", "Test", "Result", "Specification", "Tested By", "OOS Status"]]
+        rows = [["Sample ID", "Test", "Result", "Specification", "Tested By", "OOS Status",
+                 "Signature"]]
         rows += [[p(_sim_mark(r), cell), p(r["test_name"], cell),
                   p(f"{r['result_value']:g} {r['result_unit'] or ''}"
                     if r["result_value"] is not None else "Fail (qualitative)", cell),
                   p(spec_text(r["spec_min"], r["spec_max"], r["result_unit"] or ""), cell),
-                  r["tested_by"], p(r["oos_category"], cell)] for r in oos]
-        story.append(grid(rows, [85, 115, 70, 90, 60, 90], "#c62828"))
+                  p(r["tested_by"], cell), p(r["oos_category"], cell),
+                  p(signature_text(r) or "Not signed", cell)] for r in oos]
+        story.append(grid(rows, [70, 80, 58, 70, 52, 82, 120], "#c62828"))
     else:
         story.append(p("None in this selection."))
 
