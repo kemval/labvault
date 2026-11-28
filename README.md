@@ -517,6 +517,22 @@ page from a cold cache. Large lists are paged in SQL and report totals are SQL a
 pages stay well under 100 ms at 10,000 samples (ADR 0020). A test fails if the Test Results
 page's query count grows with the number of samples.
 
+### Errors and logs
+
+Users never see exception text or tracebacks. An unexpected error shows a plain message with
+a short reference, for example *"The PDF report could not be built. … reference: **3f9c1a2b**"*.
+The server log has the traceback under the same reference, as one JSON object per line on
+stderr (Streamlit Cloud: **Manage app → Logs**):
+
+```bash
+streamlit run app.py 2> labvault.log
+grep 3f9c1a2b labvault.log      # message, user, context and traceback
+```
+
+`.streamlit/config.toml` sets `client.showErrorDetails = "none"` for anything that escapes the
+app's own handler (ADR 0021). In tests, any error LabVault logs fails the test unless it is
+marked `@pytest.mark.logs_errors`.
+
 CI (`.github/workflows/ci.yml`) runs ruff, the test suite on Python 3.11 and 3.12, a lock-file
 freshness check, and `pip-audit` on every pull request, all from the hashed lock files.
 
@@ -544,6 +560,7 @@ Dependabot proposes weekly updates as pull requests, which CI tests before anyth
 labvault/
 ├── app.py                  # Main entry point — auth, routing, global styles
 ├── config.py               # Deployment settings (demo vs. secure mode)
+├── logs.py                 # JSON logging to stderr; error references for user messages
 ├── domain.py               # Statuses, priorities, roles… defined once (must match the DB rules)
 ├── services.py             # Use cases: every data change + its audit row in one transaction
 ├── db.py                   # Cached reads for the views (the only Streamlit-aware data module)

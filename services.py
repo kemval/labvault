@@ -14,6 +14,7 @@ import db  # cache invalidation only
 import domain
 from domain import ROLE_SYSTEM, SOURCE_MANUAL, STATUS_PENDING, SYSTEM_USER
 import seed
+from logs import log, log_exception
 from repo import (audit, core, fda_import, passwords, protocols, results, samples,
                   investigations, signatures, specifications, users)
 
@@ -405,13 +406,21 @@ def import_fda(limit: int = 100, only_if_empty: bool = False, user: str = SYSTEM
     """
     try:
         records = seed.fetch_records(limit)
-    except Exception as e:  # network/HTTP failure — reported to the user
-        return {"success": False, "error": str(e), "count": 0}
+    except Exception:  # network/HTTP failure: details to the log, not the user (M8)
+        ref = log_exception("openFDA fetch failed", user=user, limit=limit)
+        return {"success": False, "count": 0,
+                "error": f"the openFDA service could not be reached or sent an unexpected "
+                         f"response (reference {ref})"}
     parsed, skipped = seed.parse_records(records, users.lab_techs())
     try:
-        return fda_import.write_batch(parsed, skipped, user=user, only_if_empty=only_if_empty)
+        result = fda_import.write_batch(parsed, skipped, user=user,
+                                        only_if_empty=only_if_empty)
     finally:
         db.clear_data_caches()
+    log.info("FDA import: %s new, %s already present, %s skipped", result["count"],
+             result.get("already_present", 0), result["skipped"],
+             extra={"context": {"user": user}})
+    return result
 
 
 # ─────────────────────────────────────────────

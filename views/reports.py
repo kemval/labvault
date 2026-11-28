@@ -14,7 +14,7 @@ from db import get_report_rows, get_report_summary, get_schema_version, sample_e
 from domain import (OOS_CATEGORIES, OOS_COUNTED, OOS_INVALIDATED, PRIORITIES, RESULT_OOS,
                     SAMPLE_STATUSES, oos_category, spec_text)
 from repo.core import utc_now
-from views.ui import page_header, simulated_text
+from views.ui import page_header, show_error, simulated_text
 
 
 def report_meta(samples, results, user="—", statuses=SAMPLE_STATUSES, priorities=PRIORITIES,
@@ -333,8 +333,9 @@ def show():
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         width="stretch"
                     )
-                except Exception as e:
-                    st.error(f"Excel export failed: {e}")
+                except Exception:
+                    show_error("The Excel report could not be built.",
+                               user=user["username"], action="excel_export")
 
     with col_pdf:
         st.markdown("**PDF Report (.pdf)**")
@@ -354,8 +355,9 @@ def show():
                         mime="application/pdf",
                         width="stretch"
                     )
-                except Exception as e:
-                    st.error(f"PDF export failed: {e}. Make sure reportlab is installed.")
+                except Exception:
+                    show_error("The PDF report could not be built.",
+                               user=user["username"], action="pdf_export")
 
 
 if __name__ == "__main__":     # run as a page by st.navigation (views/navigation.py)
