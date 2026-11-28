@@ -11,7 +11,7 @@ from datetime import date
 from db import (find_results, get_all_specifications, get_loggable_samples,
                 get_results_awaiting_review, sample_exists)
 import services
-from views.ui import simulated_text, SIMULATED_LABEL, page_header
+from views.ui import how_to_add_samples, simulated_text, SIMULATED_LABEL, page_header
 
 
 def _fmt(value):
@@ -222,7 +222,7 @@ def show():
 
     user = st.session_state.user
     if not sample_exists():
-        st.info("No samples in the system yet. Import FDA data or register a sample first.")
+        st.info(f"No samples in the system yet. {how_to_add_samples()}")
         return
 
     tab_log, tab_review, tab_view = st.tabs(

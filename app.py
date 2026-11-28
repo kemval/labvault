@@ -12,6 +12,7 @@ from domain import (LOCKOUT_MINUTES, MAX_FAILED_LOGINS, ROLE_ADMIN, ROLE_LAB_TEC
 from config import ConfigError, demo_mode, admin_password
 from db import sample_exists, count_simulated, clear_user_caches
 from repo.protocols import seed_protocols
+from repo.samples import refuse_simulated_data
 from repo.specifications import seed_specifications
 from repo.schema import init_db
 from repo.users import DEMO_USERS, seed_users, session_account
@@ -172,6 +173,9 @@ def setup():
     if demo_mode():
         # Acceptance limits are a QA decision: only demo instances get defaults.
         seed_specifications()
+    else:
+        # Demo data never becomes production data (ADR 0026).
+        refuse_simulated_data()
     clear_user_caches()
     return True
 
@@ -212,13 +216,14 @@ def show_login():
     # The login logo/title is rendered as raw HTML so we can center it
     # the way we want — Streamlit's built-in layout doesn't give us
     # the same level of control for this kind of centered card design.
-    st.markdown("""
+    demo_line = ("<br>Sample data: real FDA recalls with simulated lab results"
+                 if demo_mode() else "")
+    st.markdown(f"""
         <div class="login-container">
             <div class="login-logo" aria-hidden="true">🧪</div>
             <div class="login-title">LabVault</div>
             <div class="login-subtitle">
-                Pharmaceutical Lab Management System<br>
-                Sample data: real FDA recalls with simulated lab results
+                Pharmaceutical Lab Management System{demo_line}
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -283,8 +288,8 @@ def show_sidebar():
         st.markdown(f"**{user['username']}** · *{role.replace('_', ' ').title()}*")
         st.markdown("---")
 
-        # FDA data import — only admins should be able to trigger a bulk import
-        if role == ROLE_ADMIN:
+        # FDA demo import: admins on demo instances only (ADR 0026)
+        if role == ROLE_ADMIN and demo_mode():
             st.markdown("**Data Management**")
             if not sample_exists():
                 # Let the admin know the DB is empty so they're not confused
@@ -393,7 +398,9 @@ def main():
         # instead of a blank dashboard. It is attempted once per session; with
         # only_if_empty=True, a session that loses the race to another one's
         # import becomes a no-op instead of importing a second batch.
-        if not st.session_state.auto_import_attempted and not sample_exists():
+        # Demo instances only: production starts empty (ADR 0026).
+        if (demo_mode() and not st.session_state.auto_import_attempted
+                and not sample_exists()):
             st.session_state.auto_import_attempted = True
             with st.spinner("🔬 First launch — importing real FDA pharmaceutical data..."):
                 result = services.import_fda(limit=100, only_if_empty=True,

@@ -44,7 +44,7 @@ These hosts suit a showcase. Use them for real records only after adding a guard
    cd /opt/labvault && docker compose up -d
    docker compose ps                        # labvault should become "healthy"
    ```
-7. **Check it.** Open `https://<your-domain>` and sign in as `admin` with `LABVAULT_ADMIN_PASSWORD`. Create a second admin account (README, Configuration). The **Admin** page must show "Continuous backup (Litestream) to s3://…".
+7. **Check it.** Open `https://<your-domain>` and sign in as `admin` with `LABVAULT_ADMIN_PASSWORD`. The instance starts **empty**: production never imports the FDA demo data, and the image can't run in demo mode (ADR 0026). If the container exits at once, `docker compose logs labvault` shows the reason after "LabVault must not start:". Create a second admin account (README, Configuration). The **Admin** page must show "Continuous backup (Litestream) to s3://…".
 
 ## 2. Deploys from CI (the one command)
 **Settings → Environments → New environment "production".** Add these secrets:

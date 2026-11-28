@@ -25,8 +25,10 @@ class FakeResponse:
 
 
 def serve(monkeypatch, records, before_return=None):
-    """Make seed.requests.get return `records`; count calls."""
+    """Make seed.requests.get return `records`; count calls. Also runs as a demo
+    instance: the FDA import (simulator) is demo-only (ADR 0026)."""
     import seed
+    monkeypatch.setenv("LABVAULT_DEMO_MODE", "true")
     calls = []
 
     def fake_get(url, params=None, timeout=None):

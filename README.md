@@ -478,7 +478,11 @@ Settings are read from environment variables or `.streamlit/secrets.toml`.
 | `LITESTREAM_REPLICA_URL` | Environment only. The object-storage replica that `deploy/start.sh` streams the database to (ADR 0023) |
 
 With neither setting, the app stops with a configuration error and does not create any accounts.
-In secure mode it also refuses to start on a database that still contains demo passwords.
+In secure mode it also refuses to start on a database that still contains demo passwords or
+any simulated data. Secure instances start empty: the FDA import, which invents the test
+results, is available only in demo mode (ADR 0026). The production Docker image sets
+`LABVAULT_BUILD=production`, which makes demo mode impossible: started as a demo, it exits at
+start-up.
 
 After the first start, manage accounts on the **Admin** page (ADR 0017). Keep at least two
 admin accounts: an admin can't reset or unlock their own account, so a sole admin who loses

@@ -26,10 +26,12 @@ mkdir -p "$(dirname "$LABVAULT_DB_PATH")"
 # No replica yet (first ever start): continue with an empty database.
 litestream restore -config "$CONFIG" -if-db-not-exists -if-replica-exists "$LABVAULT_DB_PATH"
 
-# Create or migrate the schema now (ADR 0003), so Litestream replicates a real
-# database from the start and the health check passes before the first visitor.
+# Preflight (ADR 0026): refuse demo mode in a production build and simulated
+# data in a non-demo database; create or migrate the schema (ADR 0003), so
+# Litestream replicates a real database and the health check passes before
+# the first visitor.
 cd "$HERE/.."
-"${PYTHON:-python}" -c "from repo.schema import init_db; init_db()"
+"${PYTHON:-python}" scripts/preflight.py
 
 exec litestream replicate -config "$CONFIG" \
   -exec "streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true"

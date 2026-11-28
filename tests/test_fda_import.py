@@ -126,6 +126,7 @@ def test_api_failure_reports_error_and_writes_nothing(fresh_db, monkeypatch, log
     def boom(*a, **k):
         raise ConnectionError("API down at 10.0.0.7")
     monkeypatch.setattr(seed.requests, "get", boom)
+    monkeypatch.setenv("LABVAULT_DEMO_MODE", "true")
 
     result = services.import_fda()
 

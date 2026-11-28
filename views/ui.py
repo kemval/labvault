@@ -44,6 +44,15 @@ def show_error(message: str, **context) -> str:
     return ref
 
 
+def how_to_add_samples() -> str:
+    """Where samples come from on this instance: the FDA demo import exists only
+    on demo instances (ADR 0026); everywhere else, Sample Intake."""
+    from config import demo_mode
+    if demo_mode():
+        return "Click **🔄 Import FDA Data** in the sidebar, or register one in **Sample Intake**."
+    return "Register the first one in **Sample Intake**."
+
+
 # Shown for a sample with no assignee (assigned_to is NULL).
 UNASSIGNED = "Unassigned"
 
