@@ -1,0 +1,30 @@
+# Litestream 0.5 configuration (ADR 0023). Streams every committed change to
+# S3-compatible object storage, about once a second.
+# deploy/start.sh runs the app under Litestream with this file.
+#
+# Environment (secrets come from the host, never from this file):
+#   LABVAULT_DB_PATH                  database on the persistent volume, e.g. /data/labvault.db
+#   LITESTREAM_REPLICA_URL            s3://<bucket>/<path>, e.g. s3://labvault-backups/prod
+#   LITESTREAM_S3_ENDPOINT            non-AWS providers only (R2, B2, MinIO...); empty for AWS
+#   LITESTREAM_S3_REGION              e.g. us-east-1 (or "auto" for Cloudflare R2)
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY   read by Litestream automatically
+#
+# Use a bucket path for this one database only: two writers to the same path
+# make restores impossible.
+
+dbs:
+  - path: ${LABVAULT_DB_PATH}
+    replica:
+      url: ${LITESTREAM_REPLICA_URL}
+      endpoint: ${LITESTREAM_S3_ENDPOINT}
+      region: ${LITESTREAM_S3_REGION}
+      sync-interval: 1s
+
+# A full snapshot daily; keep 30 days of history for point-in-time restore.
+snapshot:
+  interval: 24h
+  retention: 720h
+
+# Re-check the replica against the local database every 12 hours.
+validation:
+  interval: 12h

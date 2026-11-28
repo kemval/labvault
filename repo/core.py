@@ -8,8 +8,15 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
-# The database lives right next to the app — SQLite just needs a file path.
-DB_PATH = "labvault.db"
+from config import db_path
+
+# LABVAULT_DB_PATH, default ./labvault.db. In production a file on a
+# persistent volume, replicated by Litestream (ADR 0023).
+DB_PATH = db_path()
+
+# Wait this long for another connection's write lock before failing
+# (Litestream also briefly holds locks while it checkpoints).
+BUSY_TIMEOUT_MS = 5000
 
 
 def get_conn():
@@ -17,7 +24,7 @@ def get_conn():
     Open a fresh connection to the SQLite database with a couple of
     performance and correctness tweaks applied right away.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=BUSY_TIMEOUT_MS / 1000)
 
     # row_factory turns each row into something that behaves like a dict,
     # so we can do row["column_name"] instead of row[0]. Much more readable.
@@ -31,6 +38,11 @@ def get_conn():
     # which is huge for a multi-user app where the dashboard and a form submission
     # might hit the DB simultaneously.
     conn.execute("PRAGMA journal_mode = WAL")
+
+    # FULL (SQLite's default, stated explicitly): every commit is fsynced, so
+    # a power cut can't lose a transaction the user saw succeed. NORMAL would
+    # be faster but can drop the last commits; not acceptable for QC records.
+    conn.execute("PRAGMA synchronous = FULL")
 
     return conn
 

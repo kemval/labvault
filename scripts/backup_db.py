@@ -5,6 +5,7 @@ See docs/operations/backup-restore.md for the runbook.
     python scripts/backup_db.py backup labvault.db [--dest DIR] [--keep 14]
     python scripts/backup_db.py restore labvault.db.backup-<timestamp> labvault.db
     python scripts/backup_db.py verify labvault.db.backup-<timestamp>
+    python scripts/backup_db.py check /tmp/drill/labvault.db     # restore drill report
 
 Backups use SQLite's online backup API, so they are consistent even while the
 app is running and include committed changes still in the WAL file. Every
@@ -47,6 +48,55 @@ def verify(path: str) -> None:
         raise BackupError(f"{path} is not a valid LabVault database: {e}") from e
     if result != "ok":
         raise BackupError(f"{path} failed integrity check: {result}")
+
+
+# Integrity triggers a fully migrated LabVault database must have: append-only
+# audit trail and signatures, second-person signing, OOS investigation rules.
+REQUIRED_TRIGGERS = (
+    "audit_trail_no_delete", "audit_trail_no_update",
+    "oos_investigations_closed_is_final", "oos_investigations_fixed_origin",
+    "oos_investigations_independent_close", "oos_investigations_no_delete",
+    "result_signatures_no_delete", "result_signatures_no_update",
+    "result_signatures_second_person")
+COUNTED_TABLES = ("users", "samples", "test_results", "oos_investigations",
+                  "result_signatures", "audit_trail")
+
+
+def check(path: str, expected_version: int = None) -> dict:
+    """
+    The restore-drill report (ADR 0023): verify() plus foreign keys, schema
+    version, integrity triggers, row counts and the latest audit entry.
+    `problems` lists anything that fails; an empty list is a pass.
+    """
+    verify(path)
+    if expected_version is None:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from repo.schema import MIGRATIONS
+        expected_version = len(MIGRATIONS)
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        fk = conn.execute("PRAGMA foreign_key_check").fetchall()
+        triggers = {r[0] for r in conn.execute("SELECT name FROM sqlite_master "
+                                               "WHERE type = 'trigger'")}
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master "
+                                             "WHERE type = 'table'")}
+        counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                  for t in COUNTED_TABLES if t in tables}
+        latest = (conn.execute("SELECT MAX(timestamp) FROM audit_trail").fetchone()[0]
+                  if "audit_trail" in tables else None)
+    finally:
+        conn.close()
+    problems = []
+    if version > expected_version:
+        problems.append(f"schema version {version} is newer than this code "
+                        f"({expected_version}): restore with matching code")
+    if fk:
+        problems.append(f"{len(fk)} foreign-key violation(s)")
+    if version >= expected_version:   # older ones gain the triggers when migrated
+        problems += [f"missing trigger {t}" for t in REQUIRED_TRIGGERS if t not in triggers]
+    return {"schema_version": version, "expected_version": expected_version,
+            "counts": counts, "latest_audit": latest, "problems": problems}
 
 
 def _copy(src_path: str, dest_path: str) -> None:
@@ -126,6 +176,9 @@ def main(argv=None) -> int:
     v = sub.add_parser("verify", help="integrity-check a backup")
     v.add_argument("path")
 
+    c = sub.add_parser("check", help="restore-drill report for a restored database")
+    c.add_argument("path")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "backup":
@@ -135,6 +188,17 @@ def main(argv=None) -> int:
             if moved:
                 print(f"Previous database moved to {moved}")
             print(f"Restored {args.backup_path} -> {args.db_path}")
+        elif args.command == "check":
+            r = check(args.path)
+            print(f"{args.path}: schema v{r['schema_version']} (code expects "
+                  f"v{r['expected_version']}), latest audit entry {r['latest_audit']}")
+            for table, n in r["counts"].items():
+                print(f"  {table:<20} {n:>8,}")
+            for p in r["problems"]:
+                print(f"  PROBLEM: {p}")
+            print("PASS" if not r["problems"] else "FAIL")
+            if r["problems"]:
+                return 1
         else:
             verify(args.path)
             print(f"{args.path}: ok")
