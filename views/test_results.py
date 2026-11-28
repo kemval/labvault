@@ -4,8 +4,8 @@ pages/test_results.py — Log and view test results, OOS flagging
 
 import streamlit as st
 from domain import (OUTCOMES, QUALITATIVE_TESTS, RESULT_OOS, RESULT_PASS, RESULT_STATUSES,
-                    REVIEW_AWAITING, REVIEW_MEANINGS, SIGNATURE_MEANING_TEXT, STATUS_IN_PROGRESS,
-                    TEST_TYPES, result_entry_error, review_error)
+                    INVESTIGATION_CLOSED, REVIEW_AWAITING, SIGNATURE_MEANING_TEXT, STATUS_IN_PROGRESS,
+                    TEST_TYPES, allowed_meanings, result_entry_error, review_error)
 import pandas as pd
 from datetime import date
 from db import (get_all_samples, get_all_specifications, get_results_awaiting_review,
@@ -84,8 +84,9 @@ def _log_result_tab(user, samples):
             return
 
         if saved["status"] == RESULT_OOS:
-            st.error(f"🚨 OOS RESULT: {test_name} = {saved['shown']} — Outside specification. "
-                     "Deviation review required.")
+            st.error(f"🚨 OOS RESULT: {test_name} = {saved['shown']} — outside specification. "
+                     f"OOS investigation #{saved['investigation_id']} was opened; the result "
+                     "can be signed once an admin closes it.")
         else:
             st.success(f"✅ Result logged: {test_name} = {saved['shown']} — **{saved['status']}**")
 
@@ -94,7 +95,11 @@ def _review_text(r):
     if not r.get("review"):
         # Only results on In Progress samples can still be signed; others
         # (e.g. completed before e-signatures existed) stay unreviewed.
-        return REVIEW_AWAITING if r["sample_status"] == STATUS_IN_PROGRESS else "Not reviewed"
+        if r["sample_status"] != STATUS_IN_PROGRESS:
+            return "Not reviewed"
+        if r["status"] == RESULT_OOS and r.get("investigation_status") != INVESTIGATION_CLOSED:
+            return f"Awaiting investigation #{r['investigation_id']}"
+        return REVIEW_AWAITING
     text = f"{r['review']} by {r['reviewed_by']}"
     return f"{text}: {r['review_reason']}" if r.get("review_reason") else text
 
@@ -108,6 +113,10 @@ def _review_tab(user):
     own = sum(r["tested_by"] == user["username"] for r in awaiting)
     if own:
         st.caption(f"{own} result(s) you logged are awaiting someone else's review.")
+    investigating = sum(not allowed_meanings(r) for r in awaiting)
+    if investigating:
+        st.caption(f"{investigating} OOS result(s) wait for their investigation to be closed "
+                   "(OOS Investigations page) before they can be signed.")
     if not queue:
         st.info("Nothing for you to review. Results on In Progress samples appear here "
                 "once logged — except your own, which need a second person.")
@@ -120,13 +129,17 @@ def _review_tab(user):
              else "pass/fail outcome")
     limits = ("" if r["spec_min"] is None and r["spec_max"] is None
               else f" · spec {_fmt(r['spec_min'])} to {_fmt(r['spec_max'])}")
+    meanings = allowed_meanings(r)
+    if r["status"] == RESULT_OOS:
+        st.warning(f"OOS result — investigation #{r['investigation_id']} concluded "
+                   f"“{r['conclusion']}”, so it can only be signed as {meanings[0]}.")
     st.markdown(f"**{r['product_name'][:60]}** ({r['sample_type']}) — {r['test_name']}: "
                 f"**{shown}**{limits} → **{r['status']}**  \n"
                 f"Tested by {r['tested_by']} on {r['tested_at']}"
                 + (f" · Notes: {r['notes']}" if r.get("notes") else ""))
 
     with st.form("review_form", clear_on_submit=True):
-        meaning = st.radio("Meaning of your signature *", REVIEW_MEANINGS, index=None,
+        meaning = st.radio("Meaning of your signature *", meanings, index=None,
                            format_func=SIGNATURE_MEANING_TEXT.get)
         reason = st.text_input("Reason (required to reject)")
         password = st.text_input("Your password *", type="password")

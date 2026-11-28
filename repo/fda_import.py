@@ -6,6 +6,7 @@ import sqlite3
 
 from domain import SYSTEM_USER
 from repo.audit import write_audit
+from repo.investigations import open_for_samples
 from repo.core import get_conn
 
 
@@ -75,6 +76,9 @@ def write_batch(parsed: list, skipped: int, user: str = SYSTEM_USER,
                     (:sample_id, :test_name, :result_value, :result_unit,
                      :spec_min, :spec_max, :status, :tested_by, :tested_at, :notes, 1)
             """, new_results)
+        # Simulated OOS on samples still being worked need an investigation
+        # like any other (ADR 0015); completed ones stay as simulated.
+        opened = open_for_samples(conn, inserted_ids, user)
 
         already_present = len(parsed) - len(inserted_ids) - rejected
         skipped += rejected
@@ -85,7 +89,9 @@ def write_batch(parsed: list, skipped: int, user: str = SYSTEM_USER,
             conn, user, "SAMPLE_IMPORTED", "FDA Seed", "bulk",
             f"Imported {len(inserted_ids)} new FDA recall records with "
             f"{len(new_results)} test results ({already_present} already present, "
-            f"{skipped} skipped)." + (" Automatic first-run import." if only_if_empty else ""))
+            f"{skipped} skipped)."
+            + (f" Opened {opened} OOS investigation(s)." if opened else "")
+            + (" Automatic first-run import." if only_if_empty else ""))
 
         conn.commit()
     except BaseException:

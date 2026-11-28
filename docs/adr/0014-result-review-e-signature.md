@@ -28,5 +28,5 @@ A result counted as soon as the analyst logged it. Nobody else checked it, and a
 
 ## Consequences
 - Every sample needs two people to complete. A lab with one active user can't complete samples.
-- **Known gap until 3.4, OOS investigations:** a reviewer can reject an OOS result and the analyst can retest until it passes. This is "testing into compliance", which an inspector would look for. Until 3.4, the rejection is signed and needs a reason, and the OOS result stays on record and in the OOS counts and reports. 3.4 must require a closed investigation before an OOS result can be invalidated.
+- **Known gap until 3.4, OOS investigations:** a reviewer can reject an OOS result and the analyst can retest until it passes. This is "testing into compliance", which an inspector would look for. Until 3.4, the rejection is signed and needs a reason, and the OOS result stays on record and in the OOS counts and reports. 3.4 must require a closed investigation before an OOS result can be invalidated. *(Resolved by ADR 0015: an OOS result can only be rejected after an admin concludes "assignable laboratory error".)*
 - A user locked out by wrong signature passwords stays signed in to their current session but can't sign or sign in again until the lock expires.

@@ -12,7 +12,8 @@ the caches it affects.
 
 import streamlit as st
 
-from repo import audit, protocols, results, samples, signatures, specifications, users
+from repo import (audit, investigations, protocols, results, samples, signatures,
+                  specifications, users)
 
 
 # ─────────────────────────────────────────────
@@ -107,6 +108,11 @@ def get_results_awaiting_review():
 
 
 @st.cache_data(ttl=30)
+def get_all_investigations():
+    return investigations.all_investigations()
+
+
+@st.cache_data(ttl=30)
 def get_oos_results(limit: int = 10):
     return results.oos_results(limit)
 
@@ -145,7 +151,7 @@ def clear_data_caches():
     for cached in (get_all_samples, get_recent_samples, count_samples_by_status,
                    count_samples_by_priority, count_simulated, sample_exists,
                    get_results_for_sample, get_all_results, get_oos_results,
-                   get_results_awaiting_review,
+                   get_results_awaiting_review, get_all_investigations,
                    count_oos_results):
         cached.clear()
     clear_audit_cache()

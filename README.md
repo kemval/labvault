@@ -202,12 +202,18 @@ I approached this project as if I were building an internal tool for a real phar
 - **Result viewer**: Filterable table with color-coded Pass/Fail styling and each result's review
 - **10 pre-defined test types**: Potency, Dissolution, pH, Sterility, Particulates, Hardness, Friability, Disintegration, Water Content, Label Review
 
-### 5. 📏 Specifications
+### 5. 🔎 OOS Investigations
+- **Every OOS result opens an investigation** automatically, in the same save as the result
+- **Closed only by an admin (QA)**, never on a result they logged, with an e-signature and written findings
+- **The conclusion decides the result's signature**: *assignable laboratory error* → the result can only be rejected (retest); *OOS confirmed* → it can only be approved, so a failure can't be thrown out without QA finding a lab error
+- Investigations can't be deleted, and once closed can't be changed (database triggers)
+
+### 6. 📏 Specifications
 - Acceptance limits per sample type × test (e.g. Tablet × Dissolution ≥ 80 %), visible to everyone
 - Admin-only maintenance; every change is versioned and audited with old value, new value and reason
 - Demo instances start with defaults matching the demo data; secure instances start empty, for QA to define
 
-### 6. 📄 Protocol Management
+### 7. 📄 Protocol Management
 - **5 pre-seeded GxP protocols** based on real USP/ICH standards:
   - Dissolution Testing (USP Apparatus II, USP ⟨711⟩)
   - Potency Assay (HPLC Method)
@@ -218,13 +224,13 @@ I approached this project as if I were building an internal tool for a real phar
 - Admin-only protocol creation
 - Linked to sample types for contextual relevance
 
-### 7. 📈 Report Generation
+### 8. 📈 Report Generation
 - **Excel export** (.xlsx) with 3 sheets: Samples, Test Results, OOS-Only
 - **PDF export** (.pdf) with formatted tables, headers, and OOS highlights
 - **Filterable exports**: Choose which statuses and priorities to include
 - Audit-logged: every download is recorded in the audit trail
 
-### 8. 🕵️ Audit Trail
+### 9. 🕵️ Audit Trail
 - **Append-only log**: database triggers reject UPDATE and DELETE on audit rows
 - Captured fields: Timestamp (UTC), User, Action, Module, Target ID, Old Value, New Value, Reason, Detail
 - Status and assignment changes require a reason
@@ -232,7 +238,7 @@ I approached this project as if I were building an internal tool for a real phar
 - Filterable by user and action type; paged, so every entry is reachable
 - Color-coded action types for rapid scanning
 
-### 9. ⚙️ Admin Panel
+### 10. ⚙️ Admin Panel
 - System overview with key metrics
 - Registered user list with role badges
 - Default credential reference
@@ -523,6 +529,7 @@ labvault/
 │   ├── test_results.py     # Test result entry & OOS-flagged result viewer
 │   ├── protocols.py        # GxP protocol viewer & creator
 │   ├── specifications.py   # Acceptance limits per sample type × test (admin-maintained)
+│   ├── investigations.py   # OOS investigations, closed by an admin with an e-signature
 │   ├── reports.py          # PDF/Excel report generation with filters
 │   ├── audit_trail.py      # Append-only audit log, filtered and paged
 │   └── admin.py            # System overview & user management

@@ -459,6 +459,58 @@ def _m007_result_signatures(conn):
             END""")
 
 
+def _m008_oos_investigations(conn):
+    """
+    Audit 3.4: an investigation per OOS result (ADR 0015). Never deleted;
+    once Closed, never changed; not closed by the result's own analyst.
+    Unsigned OOS results on In Progress samples get one opened by `system`;
+    OOS results on other samples stay as recorded.
+    """
+    conn.execute(f"""
+        CREATE TABLE oos_investigations (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            result_id  INTEGER NOT NULL UNIQUE REFERENCES test_results(id),
+            opened_by  TEXT NOT NULL REFERENCES users(username),
+            opened_at  TEXT NOT NULL DEFAULT {_UTC_NOW},
+            status     TEXT NOT NULL DEFAULT 'Open' CHECK (status IN ('Open', 'Closed')),
+            conclusion TEXT CHECK (conclusion IN ('Assignable laboratory error', 'OOS confirmed')),
+            findings   TEXT,
+            closed_by  TEXT REFERENCES users(username),
+            closed_at  TEXT,
+            CHECK ((status = 'Open' AND conclusion IS NULL AND closed_by IS NULL
+                    AND closed_at IS NULL)
+                OR (status = 'Closed' AND conclusion IS NOT NULL AND closed_by IS NOT NULL
+                    AND closed_at IS NOT NULL AND length(trim(coalesce(findings, ''))) > 0))
+        )""")
+    guards = {
+        "no_delete": ("BEFORE DELETE", "", "oos_investigations rows are never deleted"),
+        "closed_is_final": ("BEFORE UPDATE", "WHEN OLD.status = 'Closed'",
+                            "a closed investigation cannot be changed"),
+        "fixed_origin": ("BEFORE UPDATE",
+                         "WHEN NEW.result_id IS NOT OLD.result_id OR NEW.opened_by IS NOT "
+                         "OLD.opened_by OR NEW.opened_at IS NOT OLD.opened_at",
+                         "the result and opening of an investigation cannot be changed"),
+        "independent_close": ("BEFORE UPDATE",
+                              "WHEN NEW.closed_by = (SELECT tested_by FROM test_results "
+                              "WHERE id = NEW.result_id)",
+                              "an investigation must be closed by someone other than the analyst"),
+    }
+    for name, (event, when, message) in guards.items():
+        conn.execute(f"""
+            CREATE TRIGGER oos_investigations_{name}
+            {event} ON oos_investigations {when}
+            BEGIN
+                SELECT RAISE(ABORT, '{message}');
+            END""")
+    conn.execute("""
+        INSERT INTO oos_investigations (result_id, opened_by)
+        SELECT r.id, 'system' FROM test_results r
+        JOIN samples s ON s.sample_id = r.sample_id
+        LEFT JOIN result_signatures g ON g.result_id = r.id
+        WHERE r.status = 'Fail (OOS)' AND s.status = 'In Progress' AND g.id IS NULL
+        ORDER BY r.id""")
+
+
 MIGRATIONS = [
     _m001_simulated_flag,
     _m002_sample_version,
@@ -467,6 +519,7 @@ MIGRATIONS = [
     _m005_specifications,
     _m006_password_security,
     _m007_result_signatures,
+    _m008_oos_investigations,
 ]
 
 

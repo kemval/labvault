@@ -6,6 +6,7 @@ result's own analyst.
 
 from domain import STATUS_IN_PROGRESS
 from repo.core import get_conn, utc_now
+from repo.results import REVIEW_COLUMNS, REVIEW_JOIN
 
 
 def insert_signature(conn, result_id: int, user: str, meaning: str, reason) -> str:
@@ -20,11 +21,12 @@ def insert_signature(conn, result_id: int, user: str, meaning: str, reason) -> s
 def result_for_review(conn, result_id: int):
     """The result with what review_error needs (sample status, signature), or None."""
     row = conn.execute("""
-        SELECT r.*, s.status AS sample_status, g.meaning AS review
+        SELECT r.*, s.status AS sample_status, {REVIEW_COLUMNS}
         FROM test_results r
         JOIN samples s ON s.sample_id = r.sample_id
-        LEFT JOIN result_signatures g ON g.result_id = r.id
-        WHERE r.id = ?""", (result_id,)).fetchone()
+        {REVIEW_JOIN}
+        WHERE r.id = ?""".format(REVIEW_COLUMNS=REVIEW_COLUMNS, REVIEW_JOIN=REVIEW_JOIN),
+        (result_id,)).fetchone()
     return dict(row) if row else None
 
 
@@ -34,11 +36,12 @@ def awaiting_review():
     try:
         return [dict(r) for r in conn.execute("""
             SELECT r.*, s.product_name, s.sample_type, s.status AS sample_status,
-                   NULL AS review
+                   {REVIEW_COLUMNS}
             FROM test_results r
             JOIN samples s ON s.sample_id = r.sample_id
-            LEFT JOIN result_signatures g ON g.result_id = r.id
+            {REVIEW_JOIN}
             WHERE g.id IS NULL AND s.status = ?
-            ORDER BY r.id""", (STATUS_IN_PROGRESS,))]
+            ORDER BY r.id""".format(REVIEW_COLUMNS=REVIEW_COLUMNS, REVIEW_JOIN=REVIEW_JOIN),
+            (STATUS_IN_PROGRESS,))]
     finally:
         conn.close()

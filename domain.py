@@ -232,10 +232,11 @@ SIGNATURE_MEANING_TEXT = {
 }
 
 
-def review_error(user, result):
+def review_error(user, result, meaning=None):
     """
-    Why `user` may not sign `result`, or None. `result` needs tested_by,
-    review (its signature meaning, or None) and sample_status.
+    Why `user` may not sign `result` (with `meaning`, when given), or None.
+    `result` needs tested_by, review (its signature meaning, or None),
+    sample_status, status and the investigation fields (allowed_meanings).
     Second-person rule: anyone may review except the analyst who logged it.
     """
     if result.get("review"):
@@ -244,4 +245,58 @@ def review_error(user, result):
         return "You logged this result, so someone else has to review it."
     if result["sample_status"] != STATUS_IN_PROGRESS:
         return "Results can only be reviewed while the sample is In Progress."
+    allowed = allowed_meanings(result)
+    if not allowed:
+        return ("This OOS result has an open investigation. It can be signed once an admin "
+                "closes the investigation.")
+    if meaning is not None and meaning not in allowed:
+        return (f"The investigation concluded “{result['conclusion']}”, so this result "
+                f"can only be signed as {allowed[0]}.")
+    return None
+
+
+# ─────────────────────────────────────────────
+# OOS INVESTIGATIONS (audit 3.4, ADR 0015)
+# ─────────────────────────────────────────────
+
+INVESTIGATION_OPEN = "Open"
+INVESTIGATION_CLOSED = "Closed"
+CONCLUSION_LAB_ERROR = "Assignable laboratory error"
+CONCLUSION_CONFIRMED = "OOS confirmed"
+CONCLUSIONS = (CONCLUSION_LAB_ERROR, CONCLUSION_CONFIRMED)
+CONCLUSION_TEXT = {
+    CONCLUSION_LAB_ERROR: "Assignable laboratory error — the result is invalid; it can only "
+                          "be rejected, and the sample retested",
+    CONCLUSION_CONFIRMED: "OOS confirmed — no laboratory error found; the result is valid "
+                          "and can only be approved",
+}
+# How a closed investigation's conclusion decides the result's signature.
+CONCLUSION_MEANING = {CONCLUSION_LAB_ERROR: REVIEW_REJECTED,
+                      CONCLUSION_CONFIRMED: REVIEW_APPROVED}
+
+
+def allowed_meanings(result):
+    """
+    The signature meanings `result` may receive. An OOS result can't be
+    signed until its investigation is closed, and then only as its
+    conclusion dictates — so a failure can't be invalidated without QA
+    finding a laboratory error. `result` needs status and, for OOS,
+    investigation_status and conclusion.
+    """
+    if result["status"] != RESULT_OOS:
+        return REVIEW_MEANINGS
+    if result.get("investigation_status") != INVESTIGATION_CLOSED:
+        return ()
+    return (CONCLUSION_MEANING[result["conclusion"]],)
+
+
+def investigation_error(user, investigation):
+    """Why `user` may not close `investigation` (needs status and the
+    result's tested_by), or None. Admins act as QA, never on their own result."""
+    if not is_admin(user):
+        return "Only an admin (QA) can close an OOS investigation."
+    if investigation["status"] != INVESTIGATION_OPEN:
+        return "This investigation is already closed."
+    if investigation["tested_by"] == user["username"]:
+        return "You logged this result, so another admin has to close its investigation."
     return None

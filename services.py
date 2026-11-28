@@ -15,7 +15,7 @@ import domain
 from domain import ROLE_SYSTEM, SOURCE_MANUAL, STATUS_PENDING, SYSTEM_USER
 import seed
 from repo import (audit, core, fda_import, passwords, protocols, results, samples,
-                  signatures, specifications, users)
+                  investigations, signatures, specifications, users)
 
 
 class ServiceError(Exception):
@@ -192,8 +192,17 @@ def record_result(data: dict, user: str) -> dict:
         }, conn=conn)
         audit.write_audit(conn, user, "RESULT_LOGGED", "Test Results", data["sample_id"],
                           f"{test}: {shown} ({limits}) → {status}")
+        investigation_id = None
+        if status == domain.RESULT_OOS:
+            # Every OOS opens an investigation, in the same transaction (ADR 0015).
+            investigation_id = investigations.open_investigation(conn, result_id, user)
+            audit.write_audit(conn, user, "OOS_INVESTIGATION_OPENED", "OOS Investigations",
+                              data["sample_id"],
+                              f"Investigation #{investigation_id} for result #{result_id} "
+                              f"{test}: {shown}", new_value=domain.INVESTIGATION_OPEN)
     db.clear_data_caches()
-    return {"id": result_id, "status": status, "spec": spec, "shown": shown}
+    return {"id": result_id, "status": status, "spec": spec, "shown": shown,
+            "investigation_id": investigation_id}
 
 
 def _fmt_limit(value):
@@ -226,7 +235,7 @@ def sign_result(result_id: int, user: str, password: str, meaning: str,
         result = signatures.result_for_review(conn, result_id)
         if result is None:
             raise NotFoundError(f"Result #{result_id} no longer exists.")
-        denied = domain.review_error(actor, result)
+        denied = domain.review_error(actor, result, meaning)
         if denied:
             raise PermissionDeniedError(denied)
         signed = _check_password(conn, users.login_account(conn, user), password,
@@ -247,6 +256,53 @@ def sign_result(result_id: int, user: str, password: str, meaning: str,
                              "after repeated failures. Nothing was signed.")
     db.clear_data_caches()
     return {"meaning": meaning, "signed_at": signed_at}
+
+
+# ─────────────────────────────────────────────
+# OOS INVESTIGATIONS
+# ─────────────────────────────────────────────
+
+def close_investigation(investigation_id: int, user: str, password: str, conclusion: str,
+                        findings: str) -> dict:
+    """
+    Conclude an OOS investigation (ADR 0015): admin only, never on a result
+    they logged, e-signed with their password (wrong passwords count toward
+    the lockout). The conclusion fixes how the result may then be signed.
+    Returns {conclusion, closed_at}.
+    """
+    findings = (findings or "").strip()
+    if conclusion not in domain.CONCLUSIONS:
+        raise ServiceError(f"Unknown conclusion: {conclusion}.")
+    if not findings:
+        raise ServiceError("Describe the investigation's findings before closing it.")
+
+    with core.transaction() as conn:
+        actor = _actor(conn, user)
+        investigation = investigations.find_investigation(conn, investigation_id)
+        if investigation is None:
+            raise NotFoundError(f"Investigation #{investigation_id} no longer exists.")
+        denied = domain.investigation_error(actor, investigation)
+        if denied:
+            raise PermissionDeniedError(denied)
+        signed = _check_password(conn, users.login_account(conn, user), password,
+                                 "SIGNATURE_FAILED", "OOS Investigations",
+                                 investigation["sample_id"])
+        if signed:
+            closed_at = investigations.close_investigation(conn, investigation_id, user,
+                                                           conclusion, findings)
+            audit.write_audit(
+                conn, user, "OOS_INVESTIGATION_CLOSED", "OOS Investigations",
+                investigation["sample_id"],
+                f"Investigation #{investigation_id} (result #{investigation['result_id']} "
+                f"{investigation['test_name']} by {investigation['tested_by']}): "
+                f"{domain.CONCLUSION_TEXT[conclusion]}",
+                old_value=domain.INVESTIGATION_OPEN, new_value=conclusion, reason=findings)
+    db.clear_audit_cache()
+    if not signed:
+        raise SignatureError("Signature refused: wrong password, or the account is locked "
+                             "after repeated failures. The investigation is still open.")
+    db.clear_data_caches()
+    return {"conclusion": conclusion, "closed_at": closed_at}
 
 
 # ─────────────────────────────────────────────
