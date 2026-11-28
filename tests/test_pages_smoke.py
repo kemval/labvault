@@ -5,6 +5,7 @@ from test_app_login import login, run_app, no_network  # noqa: F401  (fixture re
 
 PAGES = [
     "📊  Dashboard", "🧫  Sample Intake", "🔬  Sample Tracking", "📋  Test Results",
+    "🔎  OOS Investigations",
     "📄  Protocols", "📏  Specifications", "📈  Reports", "🕵️  Audit Trail", "⚙️  Admin",
 ]
 

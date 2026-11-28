@@ -122,8 +122,11 @@ def test_wrong_signature_passwords_count_toward_lockout(result):
 # ── effect on the sample ─────────────────────────────────────
 
 def test_rejected_result_does_not_count_and_a_retest_is_needed(open_sample):
-    oos = log(open_sample, "Potency (% Label Claim)", 80.0)["id"]
-    sign(oos, meaning="Rejected", reason="Sample prep error, documented in notebook p. 12")
+    oos = log(open_sample, "Potency (% Label Claim)", 80.0)
+    # An OOS can only be rejected once QA finds a laboratory error (ADR 0015).
+    services.close_investigation(oos["investigation_id"], "admin", "admin123",
+                                 "Assignable laboratory error", "Wrong dilution, notebook p. 12")
+    sign(oos["id"], meaning="Rejected", reason="Sample prep error, documented in notebook p. 12")
     with pytest.raises(services.PermissionDeniedError, match="at least one approved"):
         update(open_sample, status="Completed")
     retest = log(open_sample, "Potency (% Label Claim)", 99.0)["id"]

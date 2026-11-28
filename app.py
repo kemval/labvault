@@ -272,6 +272,7 @@ PAGES = [
     ("🧫  Sample Intake",   "Sample Intake",   "views.sample_intake",   False),
     ("🔬  Sample Tracking", "Sample Tracking", "views.sample_tracking", False),
     ("📋  Test Results",    "Test Results",    "views.test_results",    False),
+    ("🔎  OOS Investigations", "OOS Investigations", "views.investigations", False),
     ("📄  Protocols",       "Protocols",       "views.protocols",       False),
     ("📏  Specifications",  "Specifications",  "views.specifications",  False),
     ("📈  Reports",         "Reports",         "views.reports",         False),

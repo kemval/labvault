@@ -28,9 +28,13 @@ def insert_test_result(data: dict, conn=None) -> int:
 
 
 # Each result's signature (migration 7): meaning, signer, time and reason.
+# and its OOS investigation, if any (migration 8).
 REVIEW_COLUMNS = ("g.meaning AS review, g.signed_by AS reviewed_by, "
-                  "g.signed_at AS reviewed_at, g.reason AS review_reason")
-REVIEW_JOIN = "LEFT JOIN result_signatures g ON g.result_id = r.id"
+                  "g.signed_at AS reviewed_at, g.reason AS review_reason, "
+                  "i.id AS investigation_id, i.status AS investigation_status, "
+                  "i.conclusion AS conclusion")
+REVIEW_JOIN = ("LEFT JOIN result_signatures g ON g.result_id = r.id "
+               "LEFT JOIN oos_investigations i ON i.result_id = r.id")
 
 
 def results_for_sample(sample_id: str):
