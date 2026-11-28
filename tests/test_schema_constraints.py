@@ -107,7 +107,8 @@ def test_system_accounts_are_not_lab_techs(lab_db):
     assert sorted(users.lab_techs()) == ["carlos", "kembly", "maria"]
 
 
-def test_secure_instance_without_techs_imports_unassigned(fresh_db, settings, monkeypatch):
+def test_instance_without_techs_imports_unassigned(fresh_db, settings, monkeypatch):
+    # Only an admin account, no lab techs: imported samples stay unassigned.
     settings(admin_password="a-long-admin-password")
     users.seed_users(demo=False, admin_password="a-long-admin-password")
     serve(monkeypatch, [record(1)])

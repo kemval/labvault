@@ -11,7 +11,7 @@ from db import (
     get_recent_samples, get_oos_results, get_audit_trail,
     count_samples_by_status, count_samples_by_priority, get_oos_breakdown
 )
-from views.ui import esc, oos_summary, simulated_text, SIMULATED_LABEL, page_header
+from views.ui import esc, how_to_add_samples, oos_summary, simulated_text, SIMULATED_LABEL, page_header
 
 
 def show():
@@ -44,7 +44,7 @@ def show():
     # If the database is empty, nudge the admin to import data rather than
     # just showing a confusing blank dashboard
     if total == 0:
-        st.warning("📭 No samples loaded yet. Click **🔄 Import FDA Data** in the sidebar to get started.")
+        st.warning(f"📭 No samples yet. {how_to_add_samples()}")
         st.markdown("---")
 
     # ── KPI METRICS ─────────────────────────────────────────
@@ -146,7 +146,7 @@ def show():
                     </div>
                 """, unsafe_allow_html=True)
         else:
-            st.info("No samples yet — import FDA data from the sidebar.")
+            st.info(f"No samples yet. {how_to_add_samples()}")
 
     with col_audit:
         st.markdown("#### 🕵️ Recent Activity")

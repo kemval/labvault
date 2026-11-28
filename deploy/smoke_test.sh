@@ -8,6 +8,7 @@
 #   3. delete the container AND its volume
 #   4. start a new container on a new, empty volume: it must restore,
 #      become healthy, contain the marker and pass the restore-drill check
+#   5. started with LABVAULT_DEMO_MODE=true, the production image must refuse
 #
 #   deploy/smoke_test.sh [image]        # default labvault:dev
 set -eu
@@ -27,8 +28,9 @@ trap cleanup EXIT
 
 step() { printf '\n== %s\n' "$*"; }
 
-start_app() {   # $1 = volume
-  docker run -d --name "$RUN-app" --network "$NET" -v "$1:/data" \
+start_app() {   # $1 = volume; further arguments go to docker run
+  vol="$1"; shift
+  docker run -d --name "$RUN-app" --network "$NET" -v "$vol:/data" "$@" \
     -e LABVAULT_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
     -e LITESTREAM_REPLICA_URL="s3://labvault-smoke/prod" \
     -e LITESTREAM_S3_ENDPOINT="http://$RUN-s3:9090" \
@@ -96,4 +98,12 @@ assert n == 1, f'marker not restored (found {n})'
 print('marker restored')"
 docker exec "$RUN-app" python scripts/backup_db.py check /data/labvault.db
 
-step "PASS: data survived the loss of the container and its volume"
+step "5. The production image refuses to run as a demo (ADR 0026)"
+docker rm -f "$RUN-app" >/dev/null
+start_app "$RUN-v2" -e LABVAULT_DEMO_MODE=true
+code="$(docker wait "$RUN-app")"
+docker logs "$RUN-app" 2>&1 | grep "must not start" || { echo "no refusal in the logs" >&2; exit 1; }
+[ "$code" != 0 ] || { echo "container exited 0 in demo mode" >&2; exit 1; }
+echo "refused, exit code $code"
+
+step "PASS: data survived the loss of the container and its volume; demo mode refused"

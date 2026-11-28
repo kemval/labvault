@@ -9,6 +9,8 @@ Community Cloud). See docs/adr/0001-deployment-modes.md.
                              credentials. Anything else (or unset) → secure mode.
     LABVAULT_ADMIN_PASSWORD  Secure mode only: password for the initial `admin`
                              account, used once when the users table is empty.
+    LABVAULT_BUILD           Environment only. "production" (set by the Dockerfile)
+                             makes demo mode and the simulator unavailable (ADR 0026).
     LABVAULT_DB_PATH         Environment only: where the SQLite database lives
                              (default ./labvault.db).
                              In production: a file on a persistent volume (ADR 0023).
@@ -38,9 +40,26 @@ def _setting(name: str):
     return None if value is None else str(value)
 
 
+def production_build() -> bool:
+    """
+    True in the production image (Dockerfile sets LABVAULT_BUILD=production),
+    where demo mode, demo accounts and the data simulator are unavailable
+    whatever else is configured (roadmap 5.4, ADR 0026). Environment only.
+    """
+    return (os.environ.get("LABVAULT_BUILD") or "").strip().lower() == "production"
+
+
 def demo_mode() -> bool:
-    # Secure by default: only an explicit opt-in enables the demo accounts.
-    return (_setting("LABVAULT_DEMO_MODE") or "").strip().lower() in {"1", "true", "yes"}
+    """
+    Secure by default: only an explicit opt-in enables the demo accounts and
+    the FDA data simulator. Raises ConfigError if a production build is asked
+    to run as a demo, so the mistake stops the app instead of being ignored.
+    """
+    requested = (_setting("LABVAULT_DEMO_MODE") or "").strip().lower() in {"1", "true", "yes"}
+    if requested and production_build():
+        raise ConfigError("This is a production build (LABVAULT_BUILD=production): demo "
+                          "mode is not available. Unset LABVAULT_DEMO_MODE.")
+    return requested
 
 
 def admin_password():

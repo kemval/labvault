@@ -2,6 +2,7 @@
 repo/samples.py — sample rows.
 """
 
+from config import ConfigError
 from domain import PRIORITIES, REVIEW_APPROVED, STATUS_IN_PROGRESS, TERMINAL_STATUSES
 from repo.core import get_conn, run_in
 
@@ -217,6 +218,20 @@ def count_simulated():
     results = conn.execute("SELECT COUNT(*) FROM test_results WHERE is_simulated = 1").fetchone()[0]
     conn.close()
     return {"samples": samples, "results": results}
+
+
+def refuse_simulated_data():
+    """
+    For non-demo deployments: raise ConfigError if the database holds any
+    simulated sample or result, so demo data can never become production
+    records (roadmap 5.4, ADR 0026). Called once at start-up.
+    """
+    found = count_simulated()
+    if found["samples"] or found["results"]:
+        raise ConfigError(
+            f"This database contains simulated demo data ({found['samples']} samples, "
+            f"{found['results']} test results). A non-demo deployment must start from a "
+            "fresh database (LABVAULT_DB_PATH); never promote a demo database.")
 
 
 def sample_exists():

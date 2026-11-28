@@ -25,6 +25,9 @@ were also re-created on every restart.
    admin password, so it is not a shared default. User management and
    password changes arrived with roadmap item 3.6 (ADR 0017).
 
+## Later
+- ADR 0026 (roadmap 5.4): secure mode also refuses a database containing simulated data, the FDA simulator is demo-only, and the production image can't run in demo mode.
+
 ## Consequences
 - The public demo must set `LABVAULT_DEMO_MODE = "true"` in its Streamlit
   Cloud secrets, or it will show a configuration error.

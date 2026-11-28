@@ -1,4 +1,5 @@
-# LabVault production image (roadmap 5.2, ADR 0024): the app, Litestream for
+# LabVault production image (roadmap 5.2, ADR 0024; production build, ADR 0026:
+# no demo mode, no data simulator): the app, Litestream for
 # continuous backup (ADR 0023) and a health check. Runs as a non-root user;
 # the database lives on the /data volume. Configuration and secrets come only
 # from the environment (deploy/.env.example).
@@ -15,6 +16,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     LABVAULT_DB_PATH=/data/labvault.db \
+    LABVAULT_BUILD=production \
     PORT=8501
 
 # Litestream, verified against its published checksum before it is installed.

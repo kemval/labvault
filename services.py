@@ -14,6 +14,7 @@ import db  # cache invalidation only
 import domain
 from domain import ROLE_SYSTEM, SOURCE_MANUAL, STATUS_PENDING, SYSTEM_USER
 import seed
+from config import demo_mode
 from logs import log, log_exception
 from repo import (audit, core, fda_import, passwords, protocols, results, samples,
                   investigations, signatures, specifications, users)
@@ -403,7 +404,14 @@ def import_fda(limit: int = 100, only_if_empty: bool = False, user: str = SYSTEM
     `user` is who started it (the admin, or whoever's first login triggered
     it); the audit row is credited to them.
     Returns {success, count, already_present, skipped, error[, not_needed]}.
+
+    Demo instances only: the results it stores are invented, so a non-demo
+    deployment refuses before fetching anything (roadmap 5.4, ADR 0026).
     """
+    if not demo_mode():
+        raise ServiceError("The FDA demo import is available only on demo instances: it "
+                           "creates simulated test results, which must never enter real QC "
+                           "records.")
     try:
         records = seed.fetch_records(limit)
     except Exception:  # network/HTTP failure: details to the log, not the user (M8)
